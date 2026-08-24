@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=Employee Attrition Risk Intelligence System
+      - DEBUG=false
+      - SECRET_KEY=production-secret-key-change-in-prod
+      - DATABASE_URL=sqlite+aiosqlite:///./attrition.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-1.5-flash
+      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost
+    volumes:
+      - backend_data:/app/data
+      - backend_artifacts:/app/app/ml/artifacts
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  backend_data:
+  backend_artifacts:
