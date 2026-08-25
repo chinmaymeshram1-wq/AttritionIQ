@@ -1,0 +1,124 @@
+# =============================================================================
+# AttritionIQ - Root .gitignore
+# =============================================================================
+
+# --- Environment & Secret Files ---
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+
+# Explicitly preserve example environment templates
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+# --- Python & Virtual Environments ---
+venv/
+.venv/
+env/
+ENV/
+backend/venv/
+backend/.venv/
+__pycache__/
+*/__pycache__/
+*/*/__pycache__/
+*/*/*/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Node.js & Frontend Build Artifacts ---
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+frontend/build/
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+.vite/
+frontend/.vite/
+
+# --- Database & Generated Backend Data ---
+*.db
+*.sqlite
+*.sqlite3
+backend/attrition.db
+backend/*.db
+backend/*.sqlite
+backend/*.sqlite3
+
+# --- Testing & Code Quality Caches ---
+.pytest_cache/
+backend/.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- IDE & Code Editor Files ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+
+# --- Operating System Files ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Thumbs.db:encryptable
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Temporary & Log Files ---
+*.log
+logs/
+temp/
+tmp/
+*.tmp
+*.bak
+
+# --- Explicit Whitelist of Required Project Assets ---
+!backend/app/ml/artifacts/
+!backend/app/ml/artifacts/*
+!backend/data/
+!backend/data/*.csv

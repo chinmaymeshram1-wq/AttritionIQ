@@ -1,0 +1,31 @@
+{
+  "cross_validation": {
+    "cv_f1_mean": 0.6097519871432915,
+    "cv_f1_std": 0.04260497386925411,
+    "cv_recall_mean": 0.5842105263157895,
+    "cv_recall_std": 0.07139294719079231,
+    "cv_precision_mean": 0.6446103671910124,
+    "cv_precision_std": 0.04119619437612095,
+    "cv_roc_auc_mean": 0.835907026449372,
+    "cv_roc_auc_std": 0.0307022422801813,
+    "cv_pr_auc_mean": 0.6466290851293706,
+    "cv_pr_auc_std": 0.05597238050079455
+  },
+  "test_set": {
+    "test_f1": 0.5301204819277109,
+    "test_recall": 0.46808510638297873,
+    "test_precision": 0.6111111111111112,
+    "test_roc_auc": 0.8140236023774657,
+    "test_pr_auc": 0.5984150671366496,
+    "confusion_matrix": [
+      [
+        233,
+        14
+      ],
+      [
+        25,
+        22
+      ]
+    ]
+  }
+}
