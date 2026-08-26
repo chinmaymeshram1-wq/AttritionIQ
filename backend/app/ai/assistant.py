@@ -118,28 +118,13 @@ def sanitize_history(conversation_history: List[dict], current_message: str) -> 
     return sanitized
 
 
-def normalize_model_name(model_name: str) -> str:
-    """Normalize model name and provide fallback for unsupported/misconfigured model strings."""
-    if not model_name:
-        return "gemini-1.5-flash"
-
-    clean = model_name.strip()
-
-    # Map unknown or typo model names like gemini-3.6-flash to supported production models
-    if "3.6" in clean or "3." in clean or "unknown" in clean.lower():
-        logger.warning(f"[AI] Model '{clean}' is not recognized. Falling back to 'gemini-1.5-flash'")
-        return "gemini-1.5-flash"
-
-    return clean
-
-
 async def get_ai_response(
     message: str,
     employee_context: Optional[EmployeeContextForAI],
     prediction_context: Optional[PredictionContextForAI],
     conversation_history: List[dict],
 ) -> tuple[str, str]:
-    """Call Gemini API and return (reply, model_name) with safe fallback."""
+    """Call Gemini API using configured model with history sanitization and single-turn fallback."""
     api_key = (settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")).strip()
 
     if not api_key:
@@ -150,14 +135,17 @@ async def get_ai_response(
             "not-configured",
         )
 
-    print(f"[AI] Gemini API key configured: true (length: {len(api_key)})", flush=True)
-    logger.info(f"[AI] Gemini API key configured: true (length: {len(api_key)})")
+    print("[AI] Gemini API key configured: true", flush=True)
+    logger.info("[AI] Gemini API key configured: true")
 
-    # Configure Gemini with current key
+    # Configure Gemini client with the active key
     genai.configure(api_key=api_key)
 
-    raw_model = (settings.GEMINI_MODEL or os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")).strip()
-    model_name = normalize_model_name(raw_model)
+    # Respect the configured GEMINI_MODEL directly from environment/settings
+    model_name = (
+        (settings.GEMINI_MODEL or os.environ.get("GEMINI_MODEL", "")).strip()
+        or "gemini-1.5-flash"
+    )
 
     print(f"[AI] Requesting Gemini with model: {model_name}", flush=True)
     logger.info(f"[AI] Requesting Gemini with model: {model_name}")
@@ -166,44 +154,34 @@ async def get_ai_response(
     full_message = f"{context_str}\n\n---\n{message}" if context_str else message
     sanitized_history = sanitize_history(conversation_history, message)
 
-    models_to_try = [model_name]
-    for fallback in ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"]:
-        if fallback not in models_to_try:
-            models_to_try.append(fallback)
+    try:
+        model = genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction=SYSTEM_PROMPT,
+        )
 
-    last_error = None
-    for current_model in models_to_try:
-        try:
-            model = genai.GenerativeModel(
-                model_name=current_model,
-                system_instruction=SYSTEM_PROMPT,
-            )
+        # Multi-turn chat attempt if sanitized history exists
+        if sanitized_history:
+            try:
+                chat = model.start_chat(history=sanitized_history)
+                response = await chat.send_message_async(full_message)
+                print(f"[AI] Gemini response generated successfully with model: {model_name}", flush=True)
+                logger.info(f"[AI] Gemini response generated successfully with model: {model_name}")
+                return response.text, model_name
+            except Exception as chat_err:
+                logger.warning(
+                    f"[AI] Multi-turn chat failed with model '{model_name}': {chat_err}. Falling back to single-turn generation."
+                )
 
-            if sanitized_history:
-                try:
-                    chat = model.start_chat(history=sanitized_history)
-                    response = await chat.send_message_async(full_message)
-                    print(f"[AI] Gemini response generated successfully with model: {current_model}", flush=True)
-                    logger.info(f"[AI] Gemini response generated successfully with model: {current_model}")
-                    return response.text, current_model
-                except Exception as chat_err:
-                    logger.warning(f"[AI] Multi-turn chat failed with {current_model}: {chat_err}. Falling back to single-turn generation.")
+        # Single-turn generation with full injected context
+        response = await model.generate_content_async(full_message)
+        print(f"[AI] Gemini response generated successfully with model: {model_name}", flush=True)
+        logger.info(f"[AI] Gemini response generated successfully with model: {model_name}")
+        return response.text, model_name
 
-            response = await model.generate_content_async(full_message)
-            print(f"[AI] Gemini response generated successfully with model: {current_model}", flush=True)
-            logger.info(f"[AI] Gemini response generated successfully with model: {current_model}")
-            return response.text, current_model
-
-        except Exception as err:
-            last_error = err
-            err_str = str(err)
-            print(f"[AI] Gemini API request failed with model {current_model}: {type(err).__name__}: {err_str}", flush=True)
-            logger.warning(f"[AI] Gemini API request failed with model {current_model}: {type(err).__name__}: {err_str}")
-            if "404" in err_str or "not found" in err_str.lower() or "invalid" in err_str.lower():
-                continue
-            raise err
-
-    if last_error:
-        raise last_error
-
-    return "Unable to generate response from AI Assistant.", "error"
+    except Exception as err:
+        err_type = type(err).__name__
+        err_msg = str(err)
+        print(f"[AI] Gemini API request failed: {err_type}: {err_msg}", flush=True)
+        logger.error(f"[AI] Gemini API request failed: {err_type}: {err_msg}", exc_info=True)
+        raise err
