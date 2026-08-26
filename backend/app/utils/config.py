@@ -15,11 +15,24 @@ class Settings(BaseSettings):
     HIGH_THRESHOLD: float = 0.60
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-1.5-flash"
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,https://attritioniq.onrender.com"
+    TEST_USER_EMAIL: str = "chinmay.test@example.com"
+    TEST_USER_PASSWORD: str = "TestPassword123!"
 
     @property
     def allowed_origins_list(self) -> List[str]:
-        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
+        origins = [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
+        defaults = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "https://attritioniq.onrender.com",
+        ]
+        for d in defaults:
+            if d not in origins:
+                origins.append(d)
+        return origins
 
     def get_risk_level(self, probability: float) -> str:
         """Convert probability to risk level using configurable thresholds."""

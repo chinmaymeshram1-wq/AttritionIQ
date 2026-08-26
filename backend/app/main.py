@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,12 +9,37 @@ from app.database.session import engine
 from app.database.base import Base
 import app.models  # noqa: F401 — ensures all models are registered for metadata
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("attritioniq")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create DB tables on startup. In production use Alembic migrations."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """Create DB tables and seed initial test data on startup."""
+    print("[AUTH] Starting database initialization...", flush=True)
+    logger.info("[AUTH] Starting database initialization...")
+
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("[AUTH] Database initialized", flush=True)
+        logger.info("[AUTH] Database initialized")
+    except Exception as e:
+        print(f"[AUTH] Error creating database tables: {e}", flush=True)
+        logger.error(f"[AUTH] Error creating database tables: {e}", exc_info=True)
+        raise
+
+    # Seed / verify initial test data (user and default organization)
+    try:
+        from app.database.session import AsyncSessionLocal
+        from app.database.seed import seed_initial_data
+        async with AsyncSessionLocal() as session:
+            await seed_initial_data(session)
+    except Exception as e:
+        print(f"[AUTH] Failed to initialize demo user: {e}", flush=True)
+        logger.error(f"[AUTH] Failed to initialize demo user: {e}", exc_info=True)
+        raise
+
     yield
     await engine.dispose()
 

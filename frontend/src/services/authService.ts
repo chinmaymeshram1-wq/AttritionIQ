@@ -3,11 +3,9 @@ import type { TokenResponse, RegisterRequest, LoginRequest, OnboardingRequest } 
 
 export const authService = {
   async login(data: LoginRequest): Promise<TokenResponse> {
-    const params = new URLSearchParams()
-    params.append('username', data.email)
-    params.append('password', data.password)
-    const res = await api.post<TokenResponse>('/auth/login', params, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    const res = await api.post<TokenResponse>('/auth/login', {
+      email: data.email.trim(),
+      password: data.password,
     })
     return res.data
   },

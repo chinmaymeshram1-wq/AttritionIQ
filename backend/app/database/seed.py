@@ -40,10 +40,9 @@ async def seed_initial_data(db: AsyncSession) -> None:
             db.add(default_org)
             await db.flush()
 
-            logger.info(
-                "[AUTH] Created default organization: %s",
-                default_org.name,
-            )
+            msg = f"[AUTH] Created default organization: {default_org.name}"
+            print(msg, flush=True)
+            logger.info(msg)
 
         # Find the demo/test user
         user_result = await db.execute(
@@ -65,11 +64,12 @@ async def seed_initial_data(db: AsyncSession) -> None:
             db.add(user)
             await db.commit()
 
+            print("[AUTH] Demo user verified/created", flush=True)
             logger.info("[AUTH] Demo user verified/created")
-            logger.info(
-                "[AUTH] Demo login account ready: %s",
-                test_email,
-            )
+
+            msg = f"[AUTH] Demo login account ready: {test_email}"
+            print(msg, flush=True)
+            logger.info(msg)
 
         else:
             # Ensure the password is correct
@@ -86,19 +86,16 @@ async def seed_initial_data(db: AsyncSession) -> None:
 
             await db.commit()
 
+            print("[AUTH] Demo user verified/created", flush=True)
             logger.info("[AUTH] Demo user verified/created")
-            logger.info(
-                "[AUTH] Demo login account ready: %s",
-                test_email,
-            )
+
+            msg = f"[AUTH] Demo login account ready: {test_email}"
+            print(msg, flush=True)
+            logger.info(msg)
 
     except Exception as e:
         await db.rollback()
-
-        logger.error(
-            "[AUTH] Error during database seeding: %s",
-            e,
-            exc_info=True,
-        )
-
+        err_msg = f"[AUTH] Error during database seeding: {e}"
+        print(err_msg, flush=True)
+        logger.error(err_msg, exc_info=True)
         raise
