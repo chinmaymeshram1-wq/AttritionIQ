@@ -52,10 +52,10 @@ export default function AnalyticsPage() {
     queryFn: analyticsService.getJobRoleAnalytics,
   })
 
-  const pieData = overview?.risk_distribution
+  const pieData: Array<{ name: string; value: number }> = overview?.risk_distribution
     ? Object.entries(overview.risk_distribution).map(([k, v]) => ({
         name: k.toUpperCase(),
-        value: v,
+        value: Number(v),
       }))
     : []
 

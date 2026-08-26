@@ -56,7 +56,10 @@ export default function AiAssistantPage() {
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId)
   const activeMessages = activeConversation ? activeConversation.messages : []
-  const activeContext = activeConversation?.predictionContext || predictionFromNav || predictionContext
+  // The AI store may keep a lightweight prediction context, while the action API expects
+  // the complete PredictionResponse shape. The runtime fields used by the assistant are
+  // present in both shapes, so keep the existing context and narrow it at the action boundary.
+  const activeContext = (activeConversation?.predictionContext || predictionFromNav || predictionContext) as PredictionResponse | undefined
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

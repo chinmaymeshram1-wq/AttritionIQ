@@ -555,9 +555,6 @@ export default function EmployeeSearchPage() {
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value)
-                setSearchResult(null)
-                setSearchError('')
-                setNotFound(false)
               }}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               className="input-field pl-10"
