@@ -1,11 +1,11 @@
+import os
+import logging
+from typing import Optional, List
 import google.generativeai as genai
 from app.utils.config import settings
 from app.schemas.chat import EmployeeContextForAI, PredictionContextForAI
-from typing import Optional, List
 
-# Configure Gemini once at module load (key stays on backend only)
-if settings.GEMINI_API_KEY:
-    genai.configure(api_key=settings.GEMINI_API_KEY)
+logger = logging.getLogger("attritioniq")
 
 SYSTEM_PROMPT = """You are an AI HR Analytics Assistant for the Employee Attrition Risk Intelligence System.
 
@@ -70,36 +70,140 @@ def _build_context_message(
     return "\n".join(parts)
 
 
+def sanitize_history(conversation_history: List[dict], current_message: str) -> List[dict]:
+    """
+    Sanitize history for Gemini API:
+    1. Gemini requires alternating roles: user, model, user, model...
+    2. If the last message in history is the current user message, remove it since
+       send_message_async appends the new user message.
+    3. Gemini multi-turn history must end with a 'model' turn.
+    """
+    if not conversation_history:
+        return []
+
+    raw = []
+    for turn in conversation_history:
+        role = "user" if turn.get("role") in ["user", "human"] else "model"
+        content = (turn.get("content") or "").strip()
+        if content:
+            raw.append({"role": role, "content": content})
+
+    if not raw:
+        return []
+
+    # If the last item in history matches the current user message or is a trailing user turn, drop it
+    if raw[-1]["role"] == "user":
+        raw.pop()
+
+    if not raw:
+        return []
+
+    # Ensure strict alternation starting with 'user'
+    sanitized = []
+    for item in raw:
+        if not sanitized:
+            if item["role"] == "user":
+                sanitized.append({"role": "user", "parts": [item["content"]]})
+        else:
+            prev_role = sanitized[-1]["role"]
+            if item["role"] != prev_role:
+                sanitized.append({"role": item["role"], "parts": [item["content"]]})
+            else:
+                sanitized[-1]["parts"].append(item["content"])
+
+    # Ensure history ends with 'model'
+    while sanitized and sanitized[-1]["role"] == "user":
+        sanitized.pop()
+
+    return sanitized
+
+
+def normalize_model_name(model_name: str) -> str:
+    """Normalize model name and provide fallback for unsupported/misconfigured model strings."""
+    if not model_name:
+        return "gemini-1.5-flash"
+
+    clean = model_name.strip()
+
+    # Map unknown or typo model names like gemini-3.6-flash to supported production models
+    if "3.6" in clean or "3." in clean or "unknown" in clean.lower():
+        logger.warning(f"[AI] Model '{clean}' is not recognized. Falling back to 'gemini-1.5-flash'")
+        return "gemini-1.5-flash"
+
+    return clean
+
+
 async def get_ai_response(
     message: str,
     employee_context: Optional[EmployeeContextForAI],
     prediction_context: Optional[PredictionContextForAI],
     conversation_history: List[dict],
 ) -> tuple[str, str]:
-    """Call Gemini API and return (reply, model_name)."""
-    if not settings.GEMINI_API_KEY:
+    """Call Gemini API and return (reply, model_name) with safe fallback."""
+    api_key = (settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")).strip()
+
+    if not api_key:
+        print("[AI] Gemini API key configured: false", flush=True)
+        logger.warning("[AI] Gemini API key configured: false")
         return (
-            "AI Assistant is not configured. Please add your GEMINI_API_KEY to the backend .env file.",
+            "AI Assistant is not configured. Please add your GEMINI_API_KEY to the backend environment variables in Render.",
             "not-configured",
         )
 
-    model = genai.GenerativeModel(
-        model_name=settings.GEMINI_MODEL,
-        system_instruction=SYSTEM_PROMPT,
-    )
+    print(f"[AI] Gemini API key configured: true (length: {len(api_key)})", flush=True)
+    logger.info(f"[AI] Gemini API key configured: true (length: {len(api_key)})")
+
+    # Configure Gemini with current key
+    genai.configure(api_key=api_key)
+
+    raw_model = (settings.GEMINI_MODEL or os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")).strip()
+    model_name = normalize_model_name(raw_model)
+
+    print(f"[AI] Requesting Gemini with model: {model_name}", flush=True)
+    logger.info(f"[AI] Requesting Gemini with model: {model_name}")
 
     context_str = _build_context_message(employee_context, prediction_context)
-
-    # Build conversation history for multi-turn chat
-    history = []
-    for turn in conversation_history:
-        role = "user" if turn.get("role") == "user" else "model"
-        history.append({"role": role, "parts": [turn.get("content", "")]})
-
-    chat = model.start_chat(history=history)
-
-    # Prepend context to current message
     full_message = f"{context_str}\n\n---\n{message}" if context_str else message
+    sanitized_history = sanitize_history(conversation_history, message)
 
-    response = await chat.send_message_async(full_message)
-    return response.text, settings.GEMINI_MODEL
+    models_to_try = [model_name]
+    for fallback in ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"]:
+        if fallback not in models_to_try:
+            models_to_try.append(fallback)
+
+    last_error = None
+    for current_model in models_to_try:
+        try:
+            model = genai.GenerativeModel(
+                model_name=current_model,
+                system_instruction=SYSTEM_PROMPT,
+            )
+
+            if sanitized_history:
+                try:
+                    chat = model.start_chat(history=sanitized_history)
+                    response = await chat.send_message_async(full_message)
+                    print(f"[AI] Gemini response generated successfully with model: {current_model}", flush=True)
+                    logger.info(f"[AI] Gemini response generated successfully with model: {current_model}")
+                    return response.text, current_model
+                except Exception as chat_err:
+                    logger.warning(f"[AI] Multi-turn chat failed with {current_model}: {chat_err}. Falling back to single-turn generation.")
+
+            response = await model.generate_content_async(full_message)
+            print(f"[AI] Gemini response generated successfully with model: {current_model}", flush=True)
+            logger.info(f"[AI] Gemini response generated successfully with model: {current_model}")
+            return response.text, current_model
+
+        except Exception as err:
+            last_error = err
+            err_str = str(err)
+            print(f"[AI] Gemini API request failed with model {current_model}: {type(err).__name__}: {err_str}", flush=True)
+            logger.warning(f"[AI] Gemini API request failed with model {current_model}: {type(err).__name__}: {err_str}")
+            if "404" in err_str or "not found" in err_str.lower() or "invalid" in err_str.lower():
+                continue
+            raise err
+
+    if last_error:
+        raise last_error
+
+    return "Unable to generate response from AI Assistant.", "error"

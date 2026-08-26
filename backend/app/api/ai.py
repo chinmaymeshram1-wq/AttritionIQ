@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.ai.assistant import get_ai_response
 from app.auth.dependencies import get_current_active_user
 from app.models.user import User
+import logging
 
+logger = logging.getLogger("attritioniq")
 router = APIRouter()
 
 
@@ -22,4 +24,7 @@ async def ai_chat(
         )
         return ChatResponse(reply=reply, model_used=model_used)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI service error: {str(e)}")
+        err_msg = f"AI service error ({type(e).__name__}): {str(e)}"
+        print(f"[AI] Error handling /chat request: {err_msg}", flush=True)
+        logger.error(f"[AI] Error handling /chat request: {err_msg}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=err_msg)

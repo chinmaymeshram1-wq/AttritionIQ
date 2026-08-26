@@ -241,11 +241,13 @@ export const useAiStore = create<AiState>((set, get) => ({
         loading: false,
       })
       saveStoredConversations(latestConversations)
-    } catch {
+    } catch (e: unknown) {
+      const serverDetail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       const errMsg: ChatMessage = {
         role: 'assistant',
         content:
-          'Unable to communicate with AI Assistant. Ensure GEMINI_API_KEY is configured in the backend .env file.',
+          serverDetail ||
+          'Unable to communicate with AI Assistant. Ensure GEMINI_API_KEY is configured in the backend environment variables.',
         timestamp: new Date().toISOString(),
       }
 
