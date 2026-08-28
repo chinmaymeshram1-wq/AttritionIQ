@@ -18,6 +18,8 @@ import { useWhatIfStore } from '@/store/whatIfStore'
 import { useEmployeeSearchStore } from '@/store/employeeSearchStore'
 import { useAiStore } from '@/store/aiStore'
 import { formatProbability } from '@/utils/formatters'
+import DatasetSelector from '@/components/DatasetSelector'
+import { useDatasetStore } from '@/store/datasetStore'
 import type { DashboardSummary } from '@/types'
 
 const QUICK_ACTIONS = [
@@ -83,6 +85,7 @@ function formatDashboardDateTime(date: Date): string {
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user)
+  const activeDatasetId = useDatasetStore((s) => s.activeDatasetId)
   const navigate = useNavigate()
 
   // Real-time local date & time ticker
@@ -94,8 +97,8 @@ export default function DashboardPage() {
 
   // Primary KPI data query
   const { data, isLoading } = useQuery<DashboardSummary>({
-    queryKey: ['dashboard-summary'],
-    queryFn: analyticsService.getDashboardSummary,
+    queryKey: ['dashboard-summary', activeDatasetId],
+    queryFn: () => analyticsService.getDashboardSummary(activeDatasetId),
   })
 
   // Phase 7D Demo Reset State
@@ -180,7 +183,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       {/* ── 1. Enterprise Command-Center Header ────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-border pb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-[#111111] tracking-tight">
             {greeting}, {userName}
@@ -190,10 +193,12 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Small professional metadata line */}
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#F7F7F7] border border-border text-xs text-[#666666] font-medium self-start sm:self-auto">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-          <span className="font-mono text-[#111111]">{formatDashboardDateTime(currentDate)}</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <DatasetSelector />
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#F7F7F7] border border-border text-xs text-[#666666] font-medium">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+            <span className="font-mono text-[#111111]">{formatDashboardDateTime(currentDate)}</span>
+          </div>
         </div>
       </div>
 

@@ -25,32 +25,31 @@ class PredictionService:
         return self.predictor.predict_proba(features)
 
     async def predict_individual(self, request: IndividualPredictionRequest) -> PredictionResponse:
-        """Full pipeline: validate → predict → SHAP explain → persist → return response."""
-        # Exclude employee_number — it is an identifier, NOT a model feature
+        """Full pipeline: validate → predict → SHAP explain → persist standalone prediction."""
         features = request.model_dump(exclude={"employee_number"})
 
-        # ML prediction
         probability = self.predictor.predict_proba(features)
         risk_level = settings.get_risk_level(probability)
-
-        # SHAP explanation
         explanation_data = self.explainer.explain(features, probability)
 
-        # Persist employee record
+        # Standalone employee record (not associated with any imported dataset)
         employee = Employee(
             id=str(uuid.uuid4()),
             employee_number=request.employee_number,
+            dataset_id=None,
             feature_snapshot=request.model_dump(),
         )
         self.db.add(employee)
         await self.db.flush()
 
-        # Persist prediction
+        # Standalone prediction (is_standalone=True)
         prediction_id = str(uuid.uuid4())
         prediction = Prediction(
             id=prediction_id,
             employee_id=employee.id,
             employee_number=request.employee_number,
+            dataset_id=None,
+            is_standalone=True,
             attrition_probability=probability,
             risk_level=risk_level,
             model_version=settings.MODEL_VERSION,
@@ -59,7 +58,6 @@ class PredictionService:
         self.db.add(prediction)
         await self.db.flush()
 
-        # Persist explanation
         exp_record = PredictionExplanation(
             id=str(uuid.uuid4()),
             prediction_id=prediction_id,
@@ -68,6 +66,7 @@ class PredictionService:
             base_value=explanation_data.base_value,
         )
         self.db.add(exp_record)
+        await self.db.commit()
 
         return PredictionResponse(
             prediction_id=prediction_id,

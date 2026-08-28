@@ -15,6 +15,7 @@ import AnalyticsPage from '@/pages/AnalyticsPage'
 import AiAssistantPage from '@/pages/AiAssistantPage'
 import WhatIfPage from '@/pages/WhatIfPage'
 import ContactPage from '@/pages/ContactPage'
+import DatasetManagerPage from '@/pages/DatasetManagerPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="/employees" element={<EmployeeSearchPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/ai-assistant" element={<AiAssistantPage />} />
+        <Route path="/datasets" element={<DatasetManagerPage />} />
         <Route path="/what-if" element={<WhatIfPage />} />
         <Route path="/contact" element={<ContactPage />} />
       </Route>

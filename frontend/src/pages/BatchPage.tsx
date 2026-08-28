@@ -9,6 +9,7 @@ import {
   Upload, FileText, CheckCircle, Download, AlertTriangle,
   ChevronDown, ChevronUp, Info, XCircle,
 } from 'lucide-react'
+import DatasetSelector from '@/components/DatasetSelector'
 
 // ── Compatibility Panel ────────────────────────────────────────────────────────
 
@@ -220,11 +221,15 @@ export default function BatchPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-[#111111] tracking-tight">Batch Attrition Prediction</h1>
-        <p className="text-xs sm:text-sm text-[#666666] mt-1">
-          Upload an HR dataset CSV file to score attrition risk across an organization or department.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#111111] tracking-tight">Risk / Prediction Analytics</h1>
+          <p className="text-xs sm:text-sm text-[#666666] mt-1">
+            Upload an HR dataset CSV file to score attrition risk across an organization or department.
+          </p>
+        </div>
+
+        <DatasetSelector />
       </div>
 
       {/* Dropzone */}

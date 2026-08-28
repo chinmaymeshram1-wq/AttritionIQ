@@ -14,8 +14,12 @@ class Employee(Base):
     organization_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("organizations.id"), nullable=True
     )
+    dataset_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("datasets.id"), nullable=True, index=True
+    )
     # Raw feature snapshot stored as JSON for audit trail
     feature_snapshot: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    predictions: Mapped[List["Prediction"]] = relationship("Prediction", back_populates="employee")
+    dataset: Mapped[Optional["Dataset"]] = relationship("Dataset", back_populates="employees")
+    predictions: Mapped[List["Prediction"]] = relationship("Prediction", back_populates="employee", cascade="all, delete-orphan")

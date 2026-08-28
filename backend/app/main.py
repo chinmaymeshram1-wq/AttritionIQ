@@ -22,6 +22,23 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # Safe column migration for existing SQLite databases
+            from sqlalchemy import text
+            try:
+                res_emp = await conn.execute(text("PRAGMA table_info(employees)"))
+                emp_cols = [row[1] for row in res_emp.fetchall()]
+                if emp_cols and "dataset_id" not in emp_cols:
+                    await conn.execute(text("ALTER TABLE employees ADD COLUMN dataset_id VARCHAR(36)"))
+
+                res_pred = await conn.execute(text("PRAGMA table_info(predictions)"))
+                pred_cols = [row[1] for row in res_pred.fetchall()]
+                if pred_cols and "dataset_id" not in pred_cols:
+                    await conn.execute(text("ALTER TABLE predictions ADD COLUMN dataset_id VARCHAR(36)"))
+                if pred_cols and "is_standalone" not in pred_cols:
+                    await conn.execute(text("ALTER TABLE predictions ADD COLUMN is_standalone BOOLEAN DEFAULT 0"))
+            except Exception as mig_err:
+                logger.warning(f"[DB] Migration check: {mig_err}")
+
         print("[AUTH] Database initialized", flush=True)
         logger.info("[AUTH] Database initialized")
     except Exception as e:
@@ -68,6 +85,7 @@ from app.api.analytics import router as analytics_router
 from app.api.ai import router as ai_router
 from app.api.whatif import router as whatif_router
 from app.api.dashboard import router as dashboard_router
+from app.api.datasets import router as datasets_router
 
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(prediction_router, prefix="/prediction", tags=["Prediction"])
@@ -76,6 +94,7 @@ app.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])
 app.include_router(ai_router, prefix="/ai", tags=["AI Assistant"])
 app.include_router(whatif_router, prefix="/what-if", tags=["What-If"])
 app.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
+app.include_router(datasets_router, prefix="/datasets", tags=["Dataset Manager"])
 
 
 @app.get("/health", tags=["Health"])

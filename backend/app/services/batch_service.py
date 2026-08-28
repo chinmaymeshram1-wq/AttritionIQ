@@ -15,10 +15,12 @@ Key behaviours
 - Duplicate employee-number detection still works for all resolved ID columns.
 - Row-level categorical validation is preserved.
 - The existing IBM HR CSV path is never broken.
+- Supports dataset_id linkage for Multi-Dataset Architecture.
 """
 
 import io
 import math
+from typing import Optional
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ml.predictor import get_predictor
@@ -41,7 +43,6 @@ import uuid
 VALID_CATEGORIES = {
     "Gender": [
         "Male", "Female",
-        # also accept lowercase / normalized forms
         "male", "female",
     ],
     "MaritalStatus": ["Single", "Married", "Divorced", "single", "married", "divorced"],
@@ -65,22 +66,8 @@ VALID_CATEGORIES = {
     ],
 }
 
-# Canonical internal name → validation category key mapping
-# Used when validating rows from non-IBM CSVs
-_CANONICAL_TO_VALID_KEY = {
-    "gender":          "Gender",
-    "marital_status":  "MaritalStatus",
-    "business_travel": "BusinessTravel",
-    "over_time":       "OverTime",
-    "overtime":        "OverTime",   # API layer name
-    "department":      "Department",
-    "education_field": "EducationField",
-    "job_role":        "JobRole",
-}
-
 
 def _safe_int(val) -> int | None:
-    """Convert a value to int, returning None on failure."""
     try:
         return int(val)
     except (ValueError, TypeError):
@@ -95,21 +82,18 @@ def _is_nan(val) -> bool:
 
 
 class BatchService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, dataset_id: Optional[str] = None):
         self.db = db
+        self.dataset_id = dataset_id
         self.predictor = get_predictor()
         self.explainer = get_explainer()
 
     async def process_batch(self, csv_bytes: bytes) -> BatchPredictionResponse:
         df = pd.read_csv(io.BytesIO(csv_bytes))
 
-        # ── 1. Compatibility analysis ─────────────────────────────────────────
         report = analyze_csv_compatibility(df)
-
-        # Convert the utility-layer report to the schema-layer report
         compat_schema = CompatibilityReportSchema(**report.model_dump())
 
-        # ── 2. INCOMPATIBLE — return early, no predictions ────────────────────
         if report.status == "INCOMPATIBLE":
             return BatchPredictionResponse(
                 total_rows=len(df),
@@ -132,22 +116,18 @@ class BatchService:
                 compatibility_report=compat_schema,
             )
 
-        # ── 3. Determine row-level feature-building strategy ──────────────────
         is_ibm_format = report.status == "FULLY_COMPATIBLE" and _is_classic_ibm_format(df)
         is_estimated = report.status == "PARTIALLY_COMPATIBLE"
 
-        # ── 4. Determine employee-ID column ───────────────────────────────────
         emp_id_col = report.employee_id_column or "EmployeeNumber"
         if emp_id_col not in df.columns:
-            # Fallback: try common variations
             for candidate in ("EmployeeNumber", "employee_number", "emp_id", "id"):
                 if candidate in df.columns:
                     emp_id_col = candidate
                     break
             else:
-                emp_id_col = df.columns[0]  # last resort
+                emp_id_col = df.columns[0]
 
-        # ── 5. Duplicate employee-number check ────────────────────────────────
         if emp_id_col in df.columns:
             duplicates = df[df.duplicated(subset=[emp_id_col], keep=False)]
             if not duplicates.empty:
@@ -167,11 +147,8 @@ class BatchService:
                     compatibility_report=compat_schema,
                 )
 
-        # ── 6. Build reverse mapping: canonical_name → upload_col ─────────────
-        # Used to locate values for categorical validation on non-IBM formats
         canonical_to_upload: dict = {v: k for k, v in report.mapped_columns.items()}
 
-        # ── 7. Row-level processing ───────────────────────────────────────────
         validation_errors = []
         results = []
 
@@ -179,23 +156,18 @@ class BatchService:
             row_errors = []
             emp_num = None
 
-            # Extract employee number
             if emp_id_col in row:
                 emp_num = _safe_int(row[emp_id_col])
 
-            # If no employee ID or non-integer, fallback to row number
             if emp_num is None:
                 emp_num = int(idx) + 1
 
-            # ── Categorical validation (Strict for FULLY_COMPATIBLE mode) ───────
             if not is_estimated:
                 for cat_key, valid_vals in VALID_CATEGORIES.items():
                     cell_val = None
                     if cat_key in row:
-                        # IBM PascalCase column present
                         cell_val = str(row[cat_key])
                     else:
-                        # Look up by canonical name via reverse mapping
                         canonical = cat_key.lower().replace("-", "_")
                         upload_col = canonical_to_upload.get(canonical)
                         if upload_col and upload_col in row:
@@ -217,7 +189,6 @@ class BatchService:
                     )
                     continue
 
-            # ── Feature extraction ─────────────────────────────────────────────
             try:
                 if is_ibm_format:
                     features = map_csv_row_to_features(row)
@@ -231,6 +202,7 @@ class BatchService:
                 employee = Employee(
                     id=str(uuid.uuid4()),
                     employee_number=emp_num,
+                    dataset_id=self.dataset_id,
                     feature_snapshot=features,
                 )
                 self.db.add(employee)
@@ -241,6 +213,8 @@ class BatchService:
                     id=pred_id,
                     employee_id=employee.id,
                     employee_number=emp_num,
+                    dataset_id=self.dataset_id,
+                    is_standalone=False,
                     attrition_probability=probability,
                     risk_level=risk_level,
                     model_version=settings.MODEL_VERSION,
@@ -289,10 +263,5 @@ class BatchService:
 
 
 def _is_classic_ibm_format(df: pd.DataFrame) -> bool:
-    """
-    Return True only when ALL 31 IBM PascalCase column names are present
-    in the DataFrame.  Used to decide whether to use the original fast
-    ``map_csv_row_to_features()`` path.
-    """
     from app.utils.feature_mapping import COLUMN_MAP
     return all(col in df.columns for col in COLUMN_MAP)

@@ -6,6 +6,8 @@ import {
 } from 'recharts'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import EnterpriseChartTooltip from '@/components/EnterpriseChartTooltip'
+import DatasetSelector from '@/components/DatasetSelector'
+import { useDatasetStore } from '@/store/datasetStore'
 import { BarChart3, PieChart as PieIcon, Briefcase } from 'lucide-react'
 
 // Restrained functional colors for enterprise risk analytics
@@ -39,17 +41,19 @@ function EnterpriseChartLegend() {
 // ── Main Analytics Page ────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
+  const activeDatasetId = useDatasetStore((s) => s.activeDatasetId)
+
   const { data: overview, isLoading: ov } = useQuery({
-    queryKey: ['analytics-overview'],
-    queryFn: analyticsService.getAnalyticsOverview,
+    queryKey: ['analytics-overview', activeDatasetId],
+    queryFn: () => analyticsService.getAnalyticsOverview(activeDatasetId),
   })
   const { data: dept, isLoading: deptLoading } = useQuery({
-    queryKey: ['analytics-dept'],
-    queryFn: analyticsService.getDepartmentAnalytics,
+    queryKey: ['analytics-dept', activeDatasetId],
+    queryFn: () => analyticsService.getDepartmentAnalytics(activeDatasetId),
   })
   const { data: role, isLoading: roleLoading } = useQuery({
-    queryKey: ['analytics-role'],
-    queryFn: analyticsService.getJobRoleAnalytics,
+    queryKey: ['analytics-role', activeDatasetId],
+    queryFn: () => analyticsService.getJobRoleAnalytics(activeDatasetId),
   })
 
   const pieData: Array<{ name: string; value: number }> = overview?.risk_distribution
@@ -66,13 +70,17 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-8">
       {/* ── Page Header ────────────────────────────────────────────────────── */}
-      <div>
-        <h1 className="text-2xl sm:text-[32px] font-bold text-[#111111] tracking-tight leading-tight">
-          HR Attrition Analytics
-        </h1>
-        <p className="text-xs sm:text-sm text-[#666666] mt-1">
-          Aggregated organizational attrition risk metrics generated from prediction records.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
+        <div>
+          <h1 className="text-2xl sm:text-[32px] font-bold text-[#111111] tracking-tight leading-tight">
+            HR Attrition Analytics
+          </h1>
+          <p className="text-xs sm:text-sm text-[#666666] mt-1">
+            Aggregated organizational attrition risk metrics generated from prediction records.
+          </p>
+        </div>
+
+        <DatasetSelector />
       </div>
 
       {/* ── Top Row: Risk Distribution + Overtime Impact ───────────────────── */}

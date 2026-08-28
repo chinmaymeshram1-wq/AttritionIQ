@@ -1,18 +1,22 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, UserSearch, Upload, Users,
-  BarChart3, MessageSquare, Sliders, Brain, X, Contact,
+  LayoutDashboard, UserSearch, Database, Users,
+  BarChart3, MessageSquare, Sliders, Brain, X, Contact, FileSpreadsheet
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 
-const NAV_ITEMS = [
+const DATASET_ANALYTICS_NAV = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/employees', icon: Users, label: 'Employee Search' },
-  { to: '/prediction', icon: UserSearch, label: 'Individual Prediction' },
-  { to: '/batch', icon: Upload, label: 'Batch Prediction' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/employees', icon: Users, label: 'Employee Search' },
+  { to: '/batch', icon: FileSpreadsheet, label: 'Risk / Prediction Analytics' },
   { to: '/ai-assistant', icon: MessageSquare, label: 'AI Assistant' },
-  { to: '/what-if', icon: Sliders, label: 'What-If Analysis' },
+  { to: '/datasets', icon: Database, label: 'Dataset Manager' },
+]
+
+const STANDALONE_PREDICTION_NAV = [
+  { to: '/prediction', icon: UserSearch, label: 'Individual Prediction' },
+  { to: '/what-if', icon: Sliders, label: 'What-If Prediction' },
   { to: '/contact', icon: Contact, label: 'Contact' },
 ]
 
@@ -66,35 +70,73 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         </div>
 
         {/* Navigation Section */}
-        <div className="flex-1 px-3 py-4 overflow-y-auto space-y-1">
-          <div className="px-2 pb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#8A8A8A]">
-              Main Platform
-            </span>
+        <div className="flex-1 px-3 py-4 overflow-y-auto space-y-4">
+          <div>
+            <div className="px-2 pb-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#8A8A8A]">
+                Dataset Analytics
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              {DATASET_ANALYTICS_NAV.map(({ to, icon: Icon, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  onClick={() => {
+                    if (window.innerWidth < 1024) {
+                      onClose()
+                    }
+                  }}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-150',
+                      isActive
+                        ? 'bg-[#F7F7F7] text-[#111111] font-semibold border border-border shadow-xs'
+                        : 'text-[#666666] hover:bg-[#F7F7F7] hover:text-[#111111] border border-transparent'
+                    )
+                  }
+                >
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{label}</span>
+                </NavLink>
+              ))}
+            </div>
           </div>
 
-          {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={() => {
-                if (window.innerWidth < 1024) {
-                  onClose()
-                }
-              }}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-150',
-                  isActive
-                    ? 'bg-[#F7F7F7] text-[#111111] font-semibold border border-border'
-                    : 'text-[#666666] hover:bg-[#F7F7F7] hover:text-[#111111] border border-transparent'
-                )
-              }
-            >
-              <Icon className="w-4 h-4 flex-shrink-0" />
-              <span className="truncate">{label}</span>
-            </NavLink>
-          ))}
+          {/* Standalone Tools Tier */}
+          <div className="pt-2 border-t border-border">
+            <div className="px-2 pb-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#8A8A8A]">
+                Standalone Tools
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              {STANDALONE_PREDICTION_NAV.map(({ to, icon: Icon, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  onClick={() => {
+                    if (window.innerWidth < 1024) {
+                      onClose()
+                    }
+                  }}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-150',
+                      isActive
+                        ? 'bg-[#F7F7F7] text-[#111111] font-semibold border border-border shadow-xs'
+                        : 'text-[#666666] hover:bg-[#F7F7F7] hover:text-[#111111] border border-transparent'
+                    )
+                  }
+                >
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* System Meta Footer */}
@@ -104,7 +146,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               <span className="font-medium text-[#111111]">Engine Online</span>
             </div>
-            <span className="font-mono text-[#8A8A8A]">v1.0.0</span>
+            <span className="font-mono text-[#8A8A8A]">v1.1.0</span>
           </div>
         </div>
       </aside>

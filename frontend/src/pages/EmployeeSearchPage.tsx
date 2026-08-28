@@ -9,6 +9,7 @@ import {
   Upload, FileText, Search, User, ShieldCheck, AlertCircle,
   AlertTriangle, XCircle, X, Database, Contact,
 } from 'lucide-react'
+import DatasetSelector from '@/components/DatasetSelector'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -474,11 +475,15 @@ export default function EmployeeSearchPage() {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-[#111111] tracking-tight">Employee Profile Search</h1>
-        <p className="text-xs sm:text-sm text-[#666666] mt-1">
-          Upload an employee dataset and search for a specific employee profile.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#111111] tracking-tight">Employee Profile Search</h1>
+          <p className="text-xs sm:text-sm text-[#666666] mt-1">
+            Upload an employee dataset or select active dataset to search for a specific employee profile.
+          </p>
+        </div>
+
+        <DatasetSelector />
       </div>
 
       {/* ── STEP 1 / STEP 2: Upload zone ──────────────────────────────────── */}

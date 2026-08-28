@@ -1,4 +1,4 @@
-from sqlalchemy import String, Float, DateTime, ForeignKey, JSON, Integer
+from sqlalchemy import String, Float, DateTime, ForeignKey, JSON, Integer, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.database.base import Base
@@ -12,13 +12,18 @@ class Prediction(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     employee_id: Mapped[str] = mapped_column(String(36), ForeignKey("employees.id"), nullable=False)
     employee_number: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    dataset_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("datasets.id"), nullable=True, index=True
+    )
+    is_standalone: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     attrition_probability: Mapped[float] = mapped_column(Float, nullable=False)
     risk_level: Mapped[str] = mapped_column(String(10), nullable=False)  # LOW | MEDIUM | HIGH
     model_version: Mapped[str] = mapped_column(String(20), nullable=False)
     input_features: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    dataset: Mapped[Optional["Dataset"]] = relationship("Dataset", back_populates="predictions")
     employee: Mapped["Employee"] = relationship("Employee", back_populates="predictions")
     explanation: Mapped[Optional["PredictionExplanation"]] = relationship(
-        "PredictionExplanation", back_populates="prediction", uselist=False
+        "PredictionExplanation", back_populates="prediction", uselist=False, cascade="all, delete-orphan"
     )
