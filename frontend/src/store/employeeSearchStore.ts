@@ -1,31 +1,20 @@
 import { create } from 'zustand'
 import { employeeService } from '@/services/employeeService'
-import type { DatasetAnalysisResult, EmployeeSearchResult } from '@/types'
+import type { EmployeeDbResult } from '@/types'
 
 interface EmployeeSearchState {
-  file: File | null
-  analyzing: boolean
-  analysis: DatasetAnalysisResult | null
-  analyzeError: string
-
   query: string
   searching: boolean
-  searchResult: EmployeeSearchResult | null
+  searchResult: EmployeeDbResult | null
   searchError: string
   notFound: boolean
 
-  uploadAndAnalyze: (file: File | null) => Promise<void>
-  searchInDataset: (employeeId?: string) => Promise<void>
   setQuery: (query: string) => void
+  searchByDataset: (employeeNumber: string, datasetId: string | null) => Promise<void>
   clear: () => void
 }
 
 export const useEmployeeSearchStore = create<EmployeeSearchState>((set, get) => ({
-  file: null,
-  analyzing: false,
-  analysis: null,
-  analyzeError: '',
-
   query: '',
   searching: false,
   searchResult: null,
@@ -40,42 +29,9 @@ export const useEmployeeSearchStore = create<EmployeeSearchState>((set, get) => 
       notFound: false,
     }),
 
-  uploadAndAnalyze: async (file: File | null) => {
-    set({
-      file,
-      analysis: null,
-      analyzeError: '',
-      query: '',
-      searchResult: null,
-      searchError: '',
-      notFound: false,
-    })
-
-    if (!file) return
-
-    set({ analyzing: true })
-    try {
-      const result = await employeeService.analyzeDataset(file)
-      set({ analysis: result, analyzing: false })
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      set({
-        analyzeError: msg || 'Could not analyse the CSV file. Please check the format and try again.',
-        analyzing: false,
-      })
-    }
-  },
-
-  searchInDataset: async (employeeId?: string) => {
-    const targetQuery = (employeeId !== undefined ? employeeId : get().query).trim()
-    const file = get().file
-
+  searchByDataset: async (employeeNumber: string, datasetId: string | null) => {
+    const targetQuery = employeeNumber.trim()
     if (!targetQuery) return
-
-    if (!file) {
-      set({ searchError: 'Please upload an employee CSV file first.' })
-      return
-    }
 
     set({
       query: targetQuery,
@@ -86,7 +42,7 @@ export const useEmployeeSearchStore = create<EmployeeSearchState>((set, get) => 
     })
 
     try {
-      const result = await employeeService.searchInDataset(file, targetQuery)
+      const result = await employeeService.getEmployeeByNumber(targetQuery, datasetId)
       set({ searchResult: result, searching: false })
     } catch (e: unknown) {
       const status = (e as { response?: { status?: number } })?.response?.status
@@ -105,10 +61,6 @@ export const useEmployeeSearchStore = create<EmployeeSearchState>((set, get) => 
 
   clear: () =>
     set({
-      file: null,
-      analyzing: false,
-      analysis: null,
-      analyzeError: '',
       query: '',
       searching: false,
       searchResult: null,

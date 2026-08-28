@@ -10,6 +10,7 @@ const DATASET_ANALYTICS_NAV = [
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/employees', icon: Users, label: 'Employee Search' },
   { to: '/batch', icon: FileSpreadsheet, label: 'Risk / Prediction Analytics' },
+  { to: '/contact', icon: Contact, label: 'Contact Intelligence' },
   { to: '/ai-assistant', icon: MessageSquare, label: 'AI Assistant' },
   { to: '/datasets', icon: Database, label: 'Dataset Manager' },
 ]
@@ -17,7 +18,6 @@ const DATASET_ANALYTICS_NAV = [
 const STANDALONE_PREDICTION_NAV = [
   { to: '/prediction', icon: UserSearch, label: 'Individual Prediction' },
   { to: '/what-if', icon: Sliders, label: 'What-If Prediction' },
-  { to: '/contact', icon: Contact, label: 'Contact' },
 ]
 
 interface SidebarProps {

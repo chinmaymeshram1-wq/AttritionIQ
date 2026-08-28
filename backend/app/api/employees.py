@@ -35,12 +35,18 @@ async def list_employees(
     page: int = 1,
     page_size: int = 20,
     dataset_id: Optional[str] = None,
+    include_risk: bool = False,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     active_dataset_id = await _resolve_dataset_id(db, dataset_id, current_user.organization_id)
     if not active_dataset_id:
-        return {"employees": [], "page": page}
+        return {"employees": [], "page": page, "total": 0}
+
+    # Count total for pagination
+    count_stmt = select(Employee.id).where(Employee.dataset_id == active_dataset_id)
+    count_result = await db.execute(count_stmt)
+    total = len(count_result.scalars().all())
 
     offset = (page - 1) * page_size
     stmt = (
@@ -53,12 +59,39 @@ async def list_employees(
     result = await db.execute(stmt)
     employees = result.scalars().all()
 
+    # Optionally fetch latest prediction per employee
+    risk_map: dict = {}
+    if include_risk and employees:
+        emp_numbers = [e.employee_number for e in employees]
+        # Fetch latest prediction per employee_number in this dataset
+        pred_stmt = (
+            select(Prediction)
+            .where(
+                Prediction.dataset_id == active_dataset_id,
+                Prediction.is_standalone == False,
+                Prediction.employee_number.in_(emp_numbers),
+            )
+            .order_by(desc(Prediction.created_at))
+        )
+        pred_result = await db.execute(pred_stmt)
+        all_preds = pred_result.scalars().all()
+        # Keep only the latest per employee_number
+        for pred in all_preds:
+            if pred.employee_number not in risk_map:
+                risk_map[pred.employee_number] = {
+                    "risk_level": pred.risk_level,
+                    "attrition_probability": pred.attrition_probability,
+                }
+
     return {
         "employees": [
             {
                 "id": e.id,
                 "employee_number": e.employee_number,
                 "dataset_id": e.dataset_id,
+                "feature_snapshot": e.feature_snapshot if include_risk else None,
+                "risk_level": risk_map.get(e.employee_number, {}).get("risk_level") if include_risk else None,
+                "attrition_probability": risk_map.get(e.employee_number, {}).get("attrition_probability") if include_risk else None,
                 "created_at": str(e.created_at),
             }
             for e in employees

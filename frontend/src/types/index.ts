@@ -235,3 +235,29 @@ export interface EmployeeSearchResult {
   stored_prediction: StoredPrediction | null
   explanation: StoredExplanation | null
 }
+
+// ── DB-based Employee Records (dataset-scoped) ──────────────────────────────────
+
+/** An employee record returned from GET /employees (list endpoint) */
+export interface EmployeeListItem {
+  id: string
+  employee_number: number
+  dataset_id: string
+  feature_snapshot: Record<string, unknown> | null
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | null
+  attrition_probability: number | null
+  created_at: string
+}
+
+/** An employee record returned from GET /employees/{number} (detail endpoint) */
+export interface EmployeeDbResult {
+  employee: {
+    id: string
+    employee_number: number
+    dataset_id: string
+    feature_snapshot: Record<string, unknown> | null
+    created_at: string
+  }
+  latest_prediction: StoredPrediction | null
+  explanation: StoredExplanation | null
+}

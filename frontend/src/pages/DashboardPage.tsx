@@ -144,7 +144,6 @@ export default function DashboardPage() {
   const batchChecking = useBatchStore((s) => s.checking)
   const predictionSubmitting = usePredictionStore((s) => s.isSubmitting)
   const whatIfLoading = useWhatIfStore((s) => s.loading)
-  const employeeAnalyzing = useEmployeeSearchStore((s) => s.analyzing)
   const employeeSearching = useEmployeeSearchStore((s) => s.searching)
   const aiLoading = useAiStore((s) => s.loading)
 
@@ -153,7 +152,6 @@ export default function DashboardPage() {
   if (batchChecking) activeOperations.push({ name: 'Batch Compatibility Check', status: 'Analysing CSV columns...', route: '/batch' })
   if (predictionSubmitting) activeOperations.push({ name: 'Individual Prediction', status: 'Estimating risk...', route: '/prediction' })
   if (whatIfLoading) activeOperations.push({ name: 'What-If Simulation', status: 'Executing simulation...', route: '/what-if' })
-  if (employeeAnalyzing) activeOperations.push({ name: 'Employee Dataset Analysis', status: 'Analysing CSV...', route: '/employees' })
   if (employeeSearching) activeOperations.push({ name: 'Employee Profile Search', status: 'Searching records...', route: '/employees' })
   if (aiLoading) activeOperations.push({ name: 'AI HR Assistant', status: 'Generating response...', route: '/ai-assistant' })
 

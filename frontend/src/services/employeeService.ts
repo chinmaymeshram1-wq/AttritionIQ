@@ -1,47 +1,49 @@
 import api from './api'
-import type { DatasetAnalysisResult, EmployeeSearchResult } from '@/types'
+import type { EmployeeDbResult, EmployeeListItem } from '@/types'
 
 export const employeeService = {
-  async getEmployee(employeeNumber: number) {
-    const res = await api.get(`/employees/${employeeNumber}`)
-    return res.data
-  },
-  async listEmployees(page = 1, pageSize = 20) {
-    const res = await api.get('/employees', { params: { page, page_size: pageSize } })
-    return res.data
-  },
-
-  // ── Employee Search: CSV-upload-first workflow ─────────────────────────────
-
   /**
-   * Analyse an uploaded HR CSV file to detect the employee-ID column and
-   * dataset compatibility without performing any employee search yet.
+   * Fetch a single employee from the DB by employee_number, scoped to a dataset.
+   * Returns employee profile + latest prediction + SHAP explanation.
+   * READ-ONLY — never creates or modifies records.
    */
-  async analyzeDataset(file: File): Promise<DatasetAnalysisResult> {
-    const formData = new FormData()
-    formData.append('file', file)
-    const res = await api.post<DatasetAnalysisResult>(
-      '/employees/search/analyze',
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
-    )
+  async getEmployeeByNumber(
+    employeeNumber: number | string,
+    datasetId?: string | null,
+  ): Promise<EmployeeDbResult> {
+    const params: Record<string, string> = {}
+    if (datasetId) params.dataset_id = datasetId
+    const res = await api.get<EmployeeDbResult>(`/employees/${employeeNumber}`, { params })
     return res.data
   },
 
   /**
-   * Search for a specific employee ID inside the uploaded CSV.
-   * The CSV is sent with every request — it is NOT stored on the server.
-   * Also returns any stored prediction from the application database.
+   * List employees for a dataset, optionally with risk data.
+   * Returns paginated results.
    */
-  async searchInDataset(file: File, employeeId: string): Promise<EmployeeSearchResult> {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('employee_id', employeeId.trim())
-    const res = await api.post<EmployeeSearchResult>(
-      '/employees/search',
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
-    )
+  async listEmployeesWithRisk(
+    datasetId: string,
+    page = 1,
+    pageSize = 500,
+  ): Promise<{ employees: EmployeeListItem[]; total: number; page: number }> {
+    const res = await api.get('/employees', {
+      params: {
+        dataset_id: datasetId,
+        include_risk: true,
+        page,
+        page_size: pageSize,
+      },
+    })
+    return res.data
+  },
+
+  /**
+   * List employees for a dataset (basic, no risk data).
+   */
+  async listEmployees(datasetId?: string | null, page = 1, pageSize = 20) {
+    const params: Record<string, unknown> = { page, page_size: pageSize }
+    if (datasetId) params.dataset_id = datasetId
+    const res = await api.get('/employees', { params })
     return res.data
   },
 }

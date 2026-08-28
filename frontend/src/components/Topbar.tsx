@@ -19,7 +19,6 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
   const batchChecking = useBatchStore((s) => s.checking)
   const predictionSubmitting = usePredictionStore((s) => s.isSubmitting)
   const whatIfLoading = useWhatIfStore((s) => s.loading)
-  const employeeAnalyzing = useEmployeeSearchStore((s) => s.analyzing)
   const employeeSearching = useEmployeeSearchStore((s) => s.searching)
   const aiLoading = useAiStore((s) => s.loading)
 
@@ -32,8 +31,6 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
     activeOperation = { label: 'Calculating Risk...', route: '/prediction' }
   } else if (whatIfLoading) {
     activeOperation = { label: 'Simulating Scenario...', route: '/what-if' }
-  } else if (employeeAnalyzing) {
-    activeOperation = { label: 'Analysing Dataset...', route: '/employees' }
   } else if (employeeSearching) {
     activeOperation = { label: 'Searching Employee...', route: '/employees' }
   } else if (aiLoading) {
