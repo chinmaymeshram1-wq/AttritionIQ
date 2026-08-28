@@ -7,77 +7,131 @@ from app.schemas.chat import EmployeeContextForAI, PredictionContextForAI
 
 logger = logging.getLogger("attritioniq")
 
-SYSTEM_PROMPT = """You are an AI HR Analytics Assistant for the Employee Attrition Risk Intelligence System.
+SYSTEM_PROMPT = """You are an AI HR Analytics Assistant for the Employee Attrition Risk Intelligence System (AttritionIQ).
 
 Your role:
-- Interpret and explain ML-generated attrition risk predictions in plain language
-- Help HR professionals understand what factors contribute to estimated attrition risk
-- Provide context and analytics insights
+- Interpret ML-generated attrition risk predictions and SHAP factor contributions in clear, executive-level language.
+- Provide practical, constructive, and non-discriminatory HR retention and talent engagement perspectives.
+- Answer general HR analytics, model methodology, and workforce retention questions intelligently.
 
-Critical constraints you MUST follow:
-1. NEVER recommend firing, disciplinary action, denying promotions, or penalizing employees
-2. The attrition probability is a MODEL ESTIMATE — it is NOT a certainty
-3. Do NOT invent employee information not provided in the context
-4. Do NOT make definitive statements like "This employee will leave"
-5. Use language like: "the model estimates", "based on the prediction", "this suggests"
-6. You are an interpretation assistant, not a decision maker
-7. Focus on constructive HR actions: engagement, support, development opportunities
-8. Keep responses concise, professional, and actionable"""
+Formatting Rules:
+- Format your response with clear uppercase section headers (e.g. KEY CONTRIBUTING FACTORS, PROTECTIVE FACTORS, WHAT THIS MEANS, RECOMMENDED HR ACTIONS, IMPORTANT NOTE).
+- Use clean bullet points (•) and numbered lists (1., 2.) for scannability.
+- Do NOT output raw Markdown syntax like ###, **, or * when plain headers and bullets suffice.
+
+Critical Constraints:
+1. NEVER recommend firing, disciplinary action, demotion, denying promotions, or penalizing employees.
+2. The attrition probability is an ML-based statistical estimate — it is NOT a certainty that an employee will resign.
+3. Use objective, probabilistic terms such as "the model estimates", "based on the prediction", "this profile suggests".
+4. When employee context is provided, rely ONLY on the supplied dataset values and SHAP metrics for facts. Never fabricate unlisted employee metrics.
+5. If prediction data is explicitly marked as unavailable, state clearly: "Employee #[number] was found, but no attrition prediction is currently available."
+6. Focus on actionable retention solutions: workload rebalancing, satisfaction reviews, career development, and manager engagement.
+7. Maintain professional tone and keep responses structured and concise."""
 
 
 def _build_context_message(
     employee_context: Optional[EmployeeContextForAI],
     prediction_context: Optional[PredictionContextForAI],
+    nlp_normalized_question: Optional[str] = None,
 ) -> str:
     """Build structured context to inject into the AI conversation."""
     parts = []
 
+    if nlp_normalized_question:
+        parts.append("=== NLP INTERPRETATION ===")
+        parts.append(f"Target Interpretation: {nlp_normalized_question}")
+
     if employee_context:
-        parts.append("=== EMPLOYEE CONTEXT ===")
+        parts.append("\n=== EMPLOYEE CONTEXT (ACTUAL DATASET RECORD) ===")
         parts.append(f"Employee Number: {employee_context.employee_number}")
+        if employee_context.name:
+            parts.append(f"Name: {employee_context.name}")
         if employee_context.department:
             parts.append(f"Department: {employee_context.department}")
         if employee_context.job_role:
             parts.append(f"Job Role: {employee_context.job_role}")
-        if employee_context.age:
+        if employee_context.job_level is not None:
+            parts.append(f"Job Level: {employee_context.job_level}")
+        if employee_context.age is not None:
             parts.append(f"Age: {employee_context.age}")
-        if employee_context.years_at_company:
-            parts.append(f"Years at Company: {employee_context.years_at_company}")
+        if employee_context.gender:
+            parts.append(f"Gender: {employee_context.gender}")
+        if employee_context.marital_status:
+            parts.append(f"Marital Status: {employee_context.marital_status}")
+        if employee_context.business_travel:
+            parts.append(f"Business Travel: {employee_context.business_travel}")
+        if employee_context.education_field:
+            parts.append(f"Education Field: {employee_context.education_field}")
+        if employee_context.education is not None:
+            parts.append(f"Education Level: {employee_context.education}")
+        if employee_context.monthly_income is not None:
+            parts.append(f"Monthly Income: ${employee_context.monthly_income:,.0f}")
+        if employee_context.percent_salary_hike is not None:
+            parts.append(f"Percent Salary Hike: {employee_context.percent_salary_hike}%")
+        if employee_context.stock_option_level is not None:
+            parts.append(f"Stock Option Level: {employee_context.stock_option_level}")
         if employee_context.overtime:
             parts.append(f"Overtime: {employee_context.overtime}")
-        if employee_context.job_satisfaction:
+        if employee_context.job_satisfaction is not None:
             parts.append(f"Job Satisfaction (1-4): {employee_context.job_satisfaction}")
-        if employee_context.work_life_balance:
+        if employee_context.environment_satisfaction is not None:
+            parts.append(f"Environment Satisfaction (1-4): {employee_context.environment_satisfaction}")
+        if employee_context.relationship_satisfaction is not None:
+            parts.append(f"Relationship Satisfaction (1-4): {employee_context.relationship_satisfaction}")
+        if employee_context.work_life_balance is not None:
             parts.append(f"Work-Life Balance (1-4): {employee_context.work_life_balance}")
+        if employee_context.job_involvement is not None:
+            parts.append(f"Job Involvement (1-4): {employee_context.job_involvement}")
+        if employee_context.performance_rating is not None:
+            parts.append(f"Performance Rating (1-4): {employee_context.performance_rating}")
+        if employee_context.years_at_company is not None:
+            parts.append(f"Years at Company: {employee_context.years_at_company}")
+        if employee_context.years_in_current_role is not None:
+            parts.append(f"Years in Current Role: {employee_context.years_in_current_role}")
+        if employee_context.years_since_last_promotion is not None:
+            parts.append(f"Years Since Last Promotion: {employee_context.years_since_last_promotion}")
+        if employee_context.years_with_curr_manager is not None:
+            parts.append(f"Years With Current Manager: {employee_context.years_with_curr_manager}")
+        if employee_context.distance_from_home is not None:
+            parts.append(f"Distance From Home: {employee_context.distance_from_home} km")
+        if employee_context.total_working_years is not None:
+            parts.append(f"Total Working Years: {employee_context.total_working_years}")
+        if employee_context.training_times_last_year is not None:
+            parts.append(f"Training Times Last Year: {employee_context.training_times_last_year}")
+        if employee_context.num_companies_worked is not None:
+            parts.append(f"Number of Companies Worked: {employee_context.num_companies_worked}")
 
     if prediction_context:
-        parts.append("\n=== ML PREDICTION CONTEXT ===")
+        parts.append("\n=== STORED MODEL PREDICTION ===")
         parts.append(f"Estimated Attrition Probability: {prediction_context.attrition_probability * 100:.1f}%")
         parts.append(f"Risk Level: {prediction_context.risk_level}")
+        if prediction_context.prediction_id:
+            parts.append(f"Prediction ID: {prediction_context.prediction_id}")
+        if prediction_context.model_version:
+            parts.append(f"Model Pipeline: {prediction_context.model_version}")
         if prediction_context.top_risk_factors:
-            parts.append("Top Risk Factors (SHAP analysis):")
-            for f in prediction_context.top_risk_factors[:5]:
+            parts.append("\n=== SHAP RISK FACTORS (POSITIVE ATTRITION ELEVATORS) ===")
+            for f in prediction_context.top_risk_factors:
                 name = f.get("display_name", f.get("feature", "Unknown")) if isinstance(f, dict) else str(f)
                 val = f.get("shap_value", "") if isinstance(f, dict) else ""
-                parts.append(f"  - {name} (contribution: {val})")
+                val_str = f"+{val:.3f}" if isinstance(val, (int, float)) and val > 0 else f"{val}"
+                parts.append(f"  • {name}: {val_str}")
         if prediction_context.top_protective_factors:
-            parts.append("Top Protective Factors (reducing risk):")
-            for f in prediction_context.top_protective_factors[:5]:
+            parts.append("\n=== SHAP PROTECTIVE FACTORS (NEGATIVE RISK REDUCERS) ===")
+            for f in prediction_context.top_protective_factors:
                 name = f.get("display_name", f.get("feature", "Unknown")) if isinstance(f, dict) else str(f)
                 val = f.get("shap_value", "") if isinstance(f, dict) else ""
-                parts.append(f"  - {name} (contribution: {val})")
+                val_str = f"{val:.3f}" if isinstance(val, (int, float)) else f"{val}"
+                parts.append(f"  • {name}: {val_str}")
+    elif employee_context:
+        parts.append("\n=== STORED MODEL PREDICTION ===")
+        parts.append("ML Prediction status: No prediction has been run for this employee yet.")
 
     return "\n".join(parts)
 
 
 def sanitize_history(conversation_history: List[dict], current_message: str) -> List[dict]:
-    """
-    Sanitize history for Gemini API:
-    1. Gemini requires alternating roles: user, model, user, model...
-    2. If the last message in history is the current user message, remove it since
-       send_message_async appends the new user message.
-    3. Gemini multi-turn history must end with a 'model' turn.
-    """
+    """Sanitize history for Gemini API multi-turn alternation."""
     if not conversation_history:
         return []
 
@@ -91,14 +145,12 @@ def sanitize_history(conversation_history: List[dict], current_message: str) -> 
     if not raw:
         return []
 
-    # If the last item in history matches the current user message or is a trailing user turn, drop it
     if raw[-1]["role"] == "user":
         raw.pop()
 
     if not raw:
         return []
 
-    # Ensure strict alternation starting with 'user'
     sanitized = []
     for item in raw:
         if not sanitized:
@@ -111,7 +163,6 @@ def sanitize_history(conversation_history: List[dict], current_message: str) -> 
             else:
                 sanitized[-1]["parts"].append(item["content"])
 
-    # Ensure history ends with 'model'
     while sanitized and sanitized[-1]["role"] == "user":
         sanitized.pop()
 
@@ -123,34 +174,29 @@ async def get_ai_response(
     employee_context: Optional[EmployeeContextForAI],
     prediction_context: Optional[PredictionContextForAI],
     conversation_history: List[dict],
+    nlp_normalized_question: Optional[str] = None,
+    custom_context_override: Optional[str] = None,
 ) -> tuple[str, str]:
     """Call Gemini API using configured model with history sanitization and single-turn fallback."""
     api_key = (settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")).strip()
 
     if not api_key:
-        print("[AI] Gemini API key configured: false", flush=True)
         logger.warning("[AI] Gemini API key configured: false")
         return (
-            "AI Assistant is not configured. Please add your GEMINI_API_KEY to the backend environment variables in Render.",
+            "AI Assistant is not configured. Please add your GEMINI_API_KEY to the backend environment variables.",
             "not-configured",
         )
 
-    print("[AI] Gemini API key configured: true", flush=True)
-    logger.info("[AI] Gemini API key configured: true")
-
-    # Configure Gemini client with the active key
     genai.configure(api_key=api_key)
 
-    # Respect the configured GEMINI_MODEL directly from environment/settings
     model_name = (
         (settings.GEMINI_MODEL or os.environ.get("GEMINI_MODEL", "")).strip()
         or "gemini-1.5-flash"
     )
 
-    print(f"[AI] Requesting Gemini with model: {model_name}", flush=True)
-    logger.info(f"[AI] Requesting Gemini with model: {model_name}")
-
-    context_str = _build_context_message(employee_context, prediction_context)
+    context_str = custom_context_override or _build_context_message(
+        employee_context, prediction_context, nlp_normalized_question
+    )
     full_message = f"{context_str}\n\n---\n{message}" if context_str else message
     sanitized_history = sanitize_history(conversation_history, message)
 
@@ -160,28 +206,17 @@ async def get_ai_response(
             system_instruction=SYSTEM_PROMPT,
         )
 
-        # Multi-turn chat attempt if sanitized history exists
         if sanitized_history:
             try:
                 chat = model.start_chat(history=sanitized_history)
                 response = await chat.send_message_async(full_message)
-                print(f"[AI] Gemini response generated successfully with model: {model_name}", flush=True)
-                logger.info(f"[AI] Gemini response generated successfully with model: {model_name}")
                 return response.text, model_name
             except Exception as chat_err:
-                logger.warning(
-                    f"[AI] Multi-turn chat failed with model '{model_name}': {chat_err}. Falling back to single-turn generation."
-                )
+                logger.warning(f"[AI] Multi-turn chat failed with model '{model_name}': {chat_err}. Falling back to single-turn.")
 
-        # Single-turn generation with full injected context
         response = await model.generate_content_async(full_message)
-        print(f"[AI] Gemini response generated successfully with model: {model_name}", flush=True)
-        logger.info(f"[AI] Gemini response generated successfully with model: {model_name}")
         return response.text, model_name
 
     except Exception as err:
-        err_type = type(err).__name__
-        err_msg = str(err)
-        print(f"[AI] Gemini API request failed: {err_type}: {err_msg}", flush=True)
-        logger.error(f"[AI] Gemini API request failed: {err_type}: {err_msg}", exc_info=True)
+        logger.error(f"[AI] Gemini API request failed: {type(err).__name__}: {err}", exc_info=True)
         raise err

@@ -18,6 +18,101 @@ const SUGGESTED_PROMPTS = [
   'How does overtime and satisfaction interact in this employee profile?',
 ]
 
+function renderBoldText(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*.*?\*\*)/g)
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={i} className="font-semibold text-[#111111]">
+          {part.slice(2, -2)}
+        </strong>
+      )
+    }
+    return part
+  })
+}
+
+function FormattedAiMessage({ content }: { content: string }) {
+  const lines = content.split('\n')
+  const elements: React.ReactNode[] = []
+  let keyIndex = 0
+
+  lines.forEach((line) => {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      elements.push(<div key={keyIndex++} className="h-1.5" />)
+      return
+    }
+
+    if (trimmed === '---' || trimmed === '___') {
+      elements.push(<hr key={keyIndex++} className="my-2 border-border" />)
+      return
+    }
+
+    const isMarkdownHeader = /^#{1,4}\s+/.test(trimmed)
+    const isUppercaseHeader =
+      /^[A-Z0-9\s—–:-]{4,40}$/.test(trimmed) &&
+      !trimmed.startsWith('HTTP') &&
+      !trimmed.includes('.') &&
+      (trimmed.includes('ANALYSIS') ||
+        trimmed.includes('FACTORS') ||
+        trimmed.includes('ACTIONS') ||
+        trimmed.includes('MEANS') ||
+        trimmed.includes('OVERVIEW') ||
+        trimmed.includes('NOTE') ||
+        trimmed.includes('RISK'))
+
+    if (isMarkdownHeader || isUppercaseHeader) {
+      const titleText = trimmed.replace(/^#{1,4}\s+/, '').replace(/\*\*/g, '')
+      elements.push(
+        <h4
+          key={keyIndex++}
+          className="text-xs sm:text-sm font-bold text-[#111111] mt-2.5 mb-1 tracking-tight border-b border-border/80 pb-0.5 uppercase"
+        >
+          {titleText}
+        </h4>
+      )
+      return
+    }
+
+    if (/^[•\-\*]\s+/.test(trimmed)) {
+      const itemText = trimmed.replace(/^[•\-\*]\s+/, '')
+      elements.push(
+        <div key={keyIndex++} className="flex items-start gap-2 my-1 pl-1">
+          <span className="text-[#111111] font-bold text-xs mt-0.5">•</span>
+          <span className="flex-1 leading-relaxed">{renderBoldText(itemText)}</span>
+        </div>
+      )
+      return
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const match = trimmed.match(/^(\d+)\.\s+(.*)/)
+      if (match) {
+        const num = match[1]
+        const itemText = match[2]
+        elements.push(
+          <div key={keyIndex++} className="flex items-start gap-2.5 my-1.5 p-2 rounded-lg bg-white border border-border">
+            <span className="w-5 h-5 rounded-full bg-[#111111] text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+              {num}
+            </span>
+            <span className="flex-1 leading-relaxed text-xs sm:text-sm">{renderBoldText(itemText)}</span>
+          </div>
+        )
+        return
+      }
+    }
+
+    elements.push(
+      <p key={keyIndex++} className="leading-relaxed my-0.5">
+        {renderBoldText(trimmed)}
+      </p>
+    )
+  })
+
+  return <div className="space-y-0.5">{elements}</div>
+}
+
 export default function AiAssistantPage() {
   const location = useLocation()
   const predictionFromNav = location.state?.prediction as PredictionResponse | undefined
@@ -274,7 +369,11 @@ export default function AiAssistantPage() {
                       : 'bg-[#F7F7F7] text-[#111111] border border-border rounded-tl-none'
                   )}
                 >
-                  <p className="whitespace-pre-wrap font-sans">{msg.content}</p>
+                  {msg.role === 'user' ? (
+                    <p className="whitespace-pre-wrap font-sans">{msg.content}</p>
+                  ) : (
+                    <FormattedAiMessage content={msg.content} />
+                  )}
                 </div>
               </div>
             ))}
