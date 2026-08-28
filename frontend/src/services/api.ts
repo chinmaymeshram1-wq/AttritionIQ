@@ -2,8 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-  timeout: 30000,
-  headers: { 'Content-Type': 'application/json' },
+  timeout: 120000,
 })
 
 // Attach JWT token to every request (reads from zustand persisted state)
@@ -20,6 +19,12 @@ api.interceptors.request.use((config) => {
       // ignore malformed storage
     }
   }
+
+  // If sending FormData, delete Content-Type to let browser/Axios set boundary automatically
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type']
+  }
+
   return config
 })
 

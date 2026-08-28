@@ -14,6 +14,7 @@ from app.models.dataset import Dataset
 from app.auth.dependencies import get_current_active_user
 from app.models.user import User
 from app.utils.dataset_compatibility import analyze_csv_compatibility
+from app.utils.sanitizer import sanitize_for_json
 
 router = APIRouter()
 
@@ -83,7 +84,7 @@ async def list_employees(
                     "attrition_probability": pred.attrition_probability,
                 }
 
-    return {
+    return sanitize_for_json({
         "employees": [
             {
                 "id": e.id,
@@ -98,7 +99,7 @@ async def list_employees(
         ],
         "page": page,
         "dataset_id": active_dataset_id,
-    }
+    })
 
 
 @router.get("/{employee_number}")
@@ -141,7 +142,7 @@ async def get_employee(
         )
         explanation = exp_result.scalars().first()
 
-    return {
+    return sanitize_for_json({
         "employee": {
             "id": employee.id,
             "employee_number": employee.employee_number,
@@ -161,7 +162,7 @@ async def get_employee(
             "top_protective_factors": explanation.top_protective_factors,
             "base_value": explanation.base_value,
         } if explanation else None,
-    }
+    })
 
 
 @router.post("/search/analyze")
@@ -186,7 +187,7 @@ async def analyze_employee_dataset(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Compatibility analysis failed: {e}")
 
-    return {
+    return sanitize_for_json({
         "row_count": len(df),
         "column_count": len(df.columns),
         "employee_id_column": report.employee_id_column,
@@ -197,7 +198,7 @@ async def analyze_employee_dataset(
             "features_required": report.features_required,
             "data_completeness_percentage": report.data_completeness_percentage,
         },
-    }
+    })
 
 
 @router.post("/search")
@@ -323,7 +324,7 @@ async def search_employee_in_dataset(
                     "base_value": exp.base_value,
                 }
 
-    return {
+    return sanitize_for_json({
         "employee_row": employee_row,
         "employee_id_column": emp_id_col,
         "dataset_info": {"row_count": len(df)},
@@ -335,4 +336,4 @@ async def search_employee_in_dataset(
         },
         "stored_prediction": stored_prediction,
         "explanation": explanation_data,
-    }
+    })

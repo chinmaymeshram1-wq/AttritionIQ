@@ -15,7 +15,6 @@ export const predictionService = {
     const formData = new FormData()
     formData.append('file', file)
     const res = await api.post<BatchPredictionResponse>('/prediction/batch', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: BATCH_TIMEOUT_MS,
     })
     return res.data
@@ -27,7 +26,6 @@ export const predictionService = {
       '/prediction/batch/check-compatibility',
       formData,
       {
-        headers: { 'Content-Type': 'multipart/form-data' },
         timeout: BATCH_TIMEOUT_MS,
       },
     )

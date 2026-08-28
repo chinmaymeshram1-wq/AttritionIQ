@@ -17,6 +17,10 @@ export const employeeService = {
     return res.data
   },
 
+  async getEmployee(employeeNumber: number | string, datasetId?: string | null): Promise<EmployeeDbResult> {
+    return this.getEmployeeByNumber(employeeNumber, datasetId)
+  },
+
   /**
    * List employees for a dataset, optionally with risk data.
    * Returns paginated results.

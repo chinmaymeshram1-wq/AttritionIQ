@@ -37,6 +37,7 @@ from app.schemas.prediction import (
 from app.utils.config import settings
 from app.utils.dataset_compatibility import analyze_csv_compatibility
 from app.utils.feature_mapping import map_csv_row_to_features, map_row_with_compatibility
+from app.utils.sanitizer import sanitize_for_json
 import uuid
 
 # ── Categorical validation values (unchanged from original) ───────────────────
@@ -209,11 +210,14 @@ class BatchService:
                         val = None
                     raw_snapshot[col] = val
 
+                sanitized_snapshot = sanitize_for_json(raw_snapshot)
+                sanitized_features = sanitize_for_json(features)
+
                 employee = Employee(
                     id=str(uuid.uuid4()),
                     employee_number=emp_num,
                     dataset_id=self.dataset_id,
-                    feature_snapshot=raw_snapshot,
+                    feature_snapshot=sanitized_snapshot,
                 )
                 self.db.add(employee)
                 await self.db.flush()
@@ -228,7 +232,7 @@ class BatchService:
                     attrition_probability=probability,
                     risk_level=risk_level,
                     model_version=settings.MODEL_VERSION,
-                    input_features=features,
+                    input_features=sanitized_features,
                 )
                 self.db.add(prediction)
                 await self.db.flush()
