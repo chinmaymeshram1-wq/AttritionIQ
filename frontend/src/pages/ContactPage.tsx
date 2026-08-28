@@ -6,16 +6,24 @@ import type { EmployeeListItem } from '@/types'
 import RiskBadge from '@/components/RiskBadge'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import DatasetSelector from '@/components/DatasetSelector'
+import { formatProbability } from '@/utils/formatters'
 import {
   Users, Search, Copy, Check, Database,
   AlertCircle, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
-// ── Field Helpers ─────────────────────────────────────────────────────────────
+// ── Contact Field Aliases ──────────────────────────────────────────────────────
 
-function toDisplayLabel(key: string): string {
-  return key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' ')
+function normalizeHeader(header: string): string {
+  return header.toLowerCase().replace(/[\s_-]/g, '')
 }
+
+const NAME_ALIASES = ['name', 'employeename', 'fullname']
+const EMAIL_ALIASES = ['email', 'emailaddress', 'workemail']
+const PHONE_ALIASES = ['phone', 'phonenumber', 'mobile', 'mobilenumber', 'contactnumber']
+const ADDRESS_ALIASES = ['address', 'employeeaddress', 'homeaddress', 'location', 'city']
+const DEPT_ALIASES = ['department', 'dept']
+const ROLE_ALIASES = ['jobrole', 'role', 'title', 'position']
 
 function formatVal(val: unknown): string {
   if (val === null || val === undefined) return '—'
@@ -23,8 +31,33 @@ function formatVal(val: unknown): string {
   return s === '' || s.toLowerCase() === 'nan' || s.toLowerCase() === 'null' ? '—' : s
 }
 
+function getFieldByAliases(row: Record<string, unknown>, aliases: string[]): string {
+  const entries = Object.entries(row)
+  for (const alias of aliases) {
+    const entry = entries.find(([k]) => normalizeHeader(k) === alias)
+    if (entry) {
+      const formatted = formatVal(entry[1])
+      if (formatted !== '—') return formatted
+    }
+  }
+  return '—'
+}
+
 type RiskFilter = 'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'
 const PAGE_SIZE = 25
+
+interface ProcessedContact {
+  id: string
+  employeeNumber: number
+  name: string
+  email: string
+  phone: string
+  address: string
+  department: string
+  jobRole: string
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | null
+  attritionProbability: number | null
+}
 
 // ── Main ContactPage ──────────────────────────────────────────────────────────
 
@@ -45,7 +78,7 @@ export default function ContactPage() {
   const activeDataset = readyDatasets.find((d) => d.id === activeDatasetId)
   const hasNoDatasets = readyDatasets.length === 0
 
-  // ── Fetch employees when dataset changes ─────────────────────────────────────
+  // ── Fetch employees when active dataset changes ──────────────────────────────
   useEffect(() => {
     if (!activeDatasetId) {
       setEmployees([])
@@ -60,7 +93,7 @@ export default function ContactPage() {
     setCurrentPage(1)
 
     employeeService
-      .listEmployeesWithRisk(activeDatasetId, 1, 1500)
+      .listEmployeesWithRisk(activeDatasetId, 1, 2000)
       .then((data) => {
         if (cancelled) return
         setEmployees(data.employees || [])
@@ -68,7 +101,7 @@ export default function ContactPage() {
       })
       .catch((err) => {
         if (cancelled) return
-        const msg = err?.response?.data?.detail || 'Failed to load employees.'
+        const msg = err?.response?.data?.detail || 'Failed to load employees for selected dataset.'
         setError(msg)
         setLoading(false)
       })
@@ -78,7 +111,7 @@ export default function ContactPage() {
     }
   }, [activeDatasetId])
 
-  // Reset page when filter/search changes
+  // Reset page on search or filter change
   useEffect(() => {
     setCurrentPage(1)
   }, [searchQuery, riskFilter])
@@ -91,37 +124,67 @@ export default function ContactPage() {
     setTimeout(() => setCopiedKey(null), 2000)
   }, [])
 
+  // ── Process employees into contact rows ──────────────────────────────────────
+  const processedContacts: ProcessedContact[] = useMemo(() => {
+    return employees.map((e) => {
+      const snap = e.feature_snapshot || {}
+      return {
+        id: e.id,
+        employeeNumber: e.employee_number,
+        name: getFieldByAliases(snap, NAME_ALIASES),
+        email: getFieldByAliases(snap, EMAIL_ALIASES),
+        phone: getFieldByAliases(snap, PHONE_ALIASES),
+        address: getFieldByAliases(snap, ADDRESS_ALIASES),
+        department: getFieldByAliases(snap, DEPT_ALIASES),
+        jobRole: getFieldByAliases(snap, ROLE_ALIASES),
+        riskLevel: e.risk_level,
+        attritionProbability: e.attrition_probability,
+      }
+    })
+  }, [employees])
+
   // ── Filter rows ───────────────────────────────────────────────────────────────
-  const filteredEmployees = useMemo(() => {
+  const filteredContacts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim()
-    return employees.filter((e) => {
-      if (riskFilter !== 'ALL' && e.risk_level !== riskFilter) return false
+    return processedContacts.filter((c) => {
+      if (riskFilter !== 'ALL' && c.riskLevel !== riskFilter) return false
       if (q) {
-        const numStr = String(e.employee_number)
-        if (!numStr.includes(q)) return false
+        const numStr = String(c.employeeNumber)
+        const nameMatch = c.name.toLowerCase().includes(q)
+        const emailMatch = c.email.toLowerCase().includes(q)
+        const phoneMatch = c.phone.toLowerCase().includes(q)
+        const deptMatch = c.department.toLowerCase().includes(q)
+        const roleMatch = c.jobRole.toLowerCase().includes(q)
+        const numMatch = numStr.includes(q)
+        if (!numMatch && !nameMatch && !emailMatch && !phoneMatch && !deptMatch && !roleMatch) {
+          return false
+        }
       }
       return true
     })
-  }, [employees, riskFilter, searchQuery])
+  }, [processedContacts, riskFilter, searchQuery])
 
-  const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / PAGE_SIZE))
-  const paginatedEmployees = useMemo(() => {
+  const totalPages = Math.max(1, Math.ceil(filteredContacts.length / PAGE_SIZE))
+  const paginatedContacts = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE
-    return filteredEmployees.slice(start, start + PAGE_SIZE)
-  }, [filteredEmployees, currentPage])
+    return filteredContacts.slice(start, start + PAGE_SIZE)
+  }, [filteredContacts, currentPage])
 
-  // ── Risk counts ───────────────────────────────────────────────────────────────
-  const { highCount, medCount, lowCount, hasPredictions } = useMemo(() => {
-    let h = 0, m = 0, l = 0, hasPred = false
-    for (const e of employees) {
-      if (e.risk_level === 'HIGH') { h++; hasPred = true }
-      else if (e.risk_level === 'MEDIUM') { m++; hasPred = true }
-      else if (e.risk_level === 'LOW') { l++; hasPred = true }
+  // ── Summary metrics ───────────────────────────────────────────────────────────
+  const { highCount, medCount, lowCount, hasPredictions, hasContactData } = useMemo(() => {
+    let h = 0, m = 0, l = 0, hasPred = false, hasContact = false
+    for (const c of processedContacts) {
+      if (c.riskLevel === 'HIGH') { h++; hasPred = true }
+      else if (c.riskLevel === 'MEDIUM') { m++; hasPred = true }
+      else if (c.riskLevel === 'LOW') { l++; hasPred = true }
+      if (c.name !== '—' || c.email !== '—' || c.phone !== '—' || c.address !== '—') {
+        hasContact = true
+      }
     }
-    return { highCount: h, medCount: m, lowCount: l, hasPredictions: hasPred }
-  }, [employees])
+    return { highCount: h, medCount: m, lowCount: l, hasPredictions: hasPred, hasContactData: hasContact }
+  }, [processedContacts])
 
-  // ── Empty state: no datasets ──────────────────────────────────────────────────
+  // ── Empty State: No Datasets ──────────────────────────────────────────────────
   if (hasNoDatasets) {
     return (
       <div className="space-y-6">
@@ -148,7 +211,7 @@ export default function ContactPage() {
               Upload an HR dataset from Dataset Manager to begin.
             </h2>
             <p className="text-xs text-[#666666] mt-1.5 leading-relaxed">
-              Contact Intelligence displays employee records from your selected dataset, complete with attrition risk indicators.
+              Contact Intelligence displays employee records from your selected dataset, complete with attrition risk indicators and contact details.
             </p>
           </div>
           <div className="pt-2">
@@ -165,7 +228,6 @@ export default function ContactPage() {
     )
   }
 
-  // ── Main view ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -175,7 +237,7 @@ export default function ContactPage() {
             Contact Intelligence
           </h1>
           <p className="text-xs sm:text-sm text-[#666666] mt-1">
-            View employee records organized by attrition risk for the selected dataset.
+            View employee contact and profile information organized by attrition risk for the selected dataset.
           </p>
         </div>
         <DatasetSelector />
@@ -185,7 +247,7 @@ export default function ContactPage() {
       {loading && (
         <div className="card flex items-center gap-3 py-10 justify-center text-xs text-[#666666]">
           <LoadingSpinner size="sm" />
-          <span>Loading employees…</span>
+          <span>Loading employees from dataset…</span>
         </div>
       )}
 
@@ -210,7 +272,7 @@ export default function ContactPage() {
         </div>
       )}
 
-      {/* Content */}
+      {/* Main Content */}
       {!loading && !error && employees.length > 0 && (
         <>
           {/* Summary metrics */}
@@ -252,14 +314,14 @@ export default function ContactPage() {
             </div>
           </div>
 
-          {/* No predictions notice */}
-          {!hasPredictions && (
+          {/* Contact Fields Notice when absent from CSV */}
+          {!hasContactData && (
             <div className="flex items-start gap-3 p-3.5 rounded-lg bg-[#F7F7F7] border border-[#E5E5E5] text-xs">
               <AlertCircle className="w-4 h-4 text-[#666666] flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-[#111111]">No risk predictions yet</p>
-                <p className="text-[#666666] mt-0.5">
-                  This dataset hasn't generated predictions. Upload it through Dataset Manager to score attrition risk.
+                <p className="font-semibold text-[#111111]">Contact fields (Name, Email, Phone, Address)</p>
+                <p className="text-[#666666] mt-0.5 leading-relaxed">
+                  This dataset does not contain dedicated contact columns. Uploading an HR CSV with Name, Email, Phone, or Address columns in Dataset Manager will automatically populate them here.
                 </p>
               </div>
             </div>
@@ -275,12 +337,12 @@ export default function ContactPage() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by Employee ID…"
+                  placeholder="Search by Employee ID, Name, Email, Phone, Department, or Role…"
                   className="input-field pl-10"
                 />
               </div>
 
-              {/* Risk filter */}
+              {/* Risk filter pills */}
               <div className="inline-flex p-1 bg-[#F7F7F7] rounded-lg border border-border gap-1 flex-shrink-0 self-start md:self-auto">
                 {(['ALL', 'HIGH', 'MEDIUM', 'LOW'] as RiskFilter[]).map((f) => (
                   <button
@@ -306,74 +368,126 @@ export default function ContactPage() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-border bg-[#F7F7F7] text-[#666666]">
-                    <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Employee #</th>
+                    <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Employee ID</th>
+                    <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Name</th>
+                    <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Email</th>
+                    <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Phone</th>
+                    <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Department</th>
+                    <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Job Role</th>
                     <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Risk Level</th>
                     <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Probability</th>
-                    <th className="py-2.5 px-3 font-bold uppercase tracking-wider">Key Profile Fields</th>
                     <th className="py-2.5 px-3 font-bold uppercase tracking-wider text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {paginatedEmployees.length === 0 ? (
+                  {paginatedContacts.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-12 text-center text-xs">
+                      <td colSpan={9} className="py-12 text-center text-xs">
                         <p className="font-bold text-[#111111] text-sm">No employees found</p>
                         <p className="text-[#666666] mt-1">Try another search or risk filter.</p>
                       </td>
                     </tr>
                   ) : (
-                    paginatedEmployees.map((e, idx) => {
-                      const snapshot = e.feature_snapshot || {}
-                      // Show a few key profile fields inline
-                      const keyFields = ['Department', 'JobRole', 'Age', 'MaritalStatus']
-                        .map((k) => {
-                          const val = formatVal(snapshot[k])
-                          return val !== '—' ? `${toDisplayLabel(k)}: ${val}` : null
-                        })
-                        .filter(Boolean)
-                        .slice(0, 3)
-
-                      const empStr = String(e.employee_number)
-                      const copyKey = `${empStr}-${idx}`
+                    paginatedContacts.map((c, idx) => {
+                      const empStr = String(c.employeeNumber)
+                      const emailKey = `${c.id}-${idx}-email`
+                      const phoneKey = `${c.id}-${idx}-phone`
+                      const idKey = `${c.id}-${idx}-id`
 
                       return (
-                        <tr key={e.id} className="hover:bg-[#FAFAFA] transition-colors">
+                        <tr key={c.id} className="hover:bg-[#FAFAFA] transition-colors">
                           <td className="py-3 px-3 font-mono font-semibold text-[#111111]">
-                            #{e.employee_number}
+                            #{c.employeeNumber}
+                          </td>
+                          <td className="py-3 px-3 font-medium text-[#111111]">
+                            {c.name}
+                          </td>
+                          <td className="py-3 px-3 text-[#111111] break-all">
+                            {c.email}
+                          </td>
+                          <td className="py-3 px-3 text-[#111111] whitespace-nowrap">
+                            {c.phone}
+                          </td>
+                          <td className="py-3 px-3 text-[#666666]">
+                            {c.department}
+                          </td>
+                          <td className="py-3 px-3 text-[#666666]">
+                            {c.jobRole}
                           </td>
                           <td className="py-3 px-3">
-                            {e.risk_level ? (
-                              <RiskBadge level={e.risk_level} size="sm" />
+                            {c.riskLevel ? (
+                              <RiskBadge level={c.riskLevel} size="sm" />
                             ) : (
                               <span className="text-[11px] text-[#8A8A8A] italic">No prediction</span>
                             )}
                           </td>
                           <td className="py-3 px-3 font-mono font-medium text-[#111111]">
-                            {e.attrition_probability != null
-                              ? formatProbability(e.attrition_probability)
+                            {c.attritionProbability != null
+                              ? formatProbability(c.attritionProbability)
                               : '—'}
                           </td>
-                          <td className="py-3 px-3 text-[#666666]">
-                            {keyFields.length > 0 ? keyFields.join(' · ') : '—'}
-                          </td>
                           <td className="py-3 px-3 text-right">
-                            <button
-                              onClick={() => handleCopy(empStr, copyKey)}
-                              className="btn-secondary text-[11px] py-1 px-2 flex items-center gap-1 font-medium ml-auto"
-                              title={`Copy Employee ID ${empStr}`}
-                            >
-                              {copiedKey === copyKey ? (
-                                <>
-                                  <Check className="w-3 h-3 text-emerald-600" />
-                                  <span className="text-emerald-700">Copied</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3 text-[#8A8A8A]" />
-                                  <span>Copy ID</span>
-                                </>
+                            <div className="flex items-center justify-end gap-1.5">
+                              {c.email !== '—' && (
+                                <button
+                                  onClick={() => handleCopy(c.email, emailKey)}
+                                  className="btn-secondary text-[11px] py-1 px-2 flex items-center gap-1 font-medium"
+                                  title={`Copy Email: ${c.email}`}
+                                >
+                                  {copiedKey === emailKey ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      <span className="text-emerald-700">Copied</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3 text-[#8A8A8A]" />
+                                      <span>Copy Email</span>
+                                    </>
+                                  )}
+                                </button>
                               )}
-                            </button>
+
+                              {c.phone !== '—' && (
+                                <button
+                                  onClick={() => handleCopy(c.phone, phoneKey)}
+                                  className="btn-secondary text-[11px] py-1 px-2 flex items-center gap-1 font-medium"
+                                  title={`Copy Phone: ${c.phone}`}
+                                >
+                                  {copiedKey === phoneKey ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      <span className="text-emerald-700">Copied</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3 text-[#8A8A8A]" />
+                                      <span>Copy Phone</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+
+                              {c.email === '—' && c.phone === '—' && (
+                                <button
+                                  onClick={() => handleCopy(empStr, idKey)}
+                                  className="btn-secondary text-[11px] py-1 px-2 flex items-center gap-1 font-medium"
+                                  title={`Copy Employee ID ${empStr}`}
+                                >
+                                  {copiedKey === idKey ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      <span className="text-emerald-700">Copied</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3 text-[#8A8A8A]" />
+                                      <span>Copy ID</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       )
@@ -384,7 +498,7 @@ export default function ContactPage() {
             </div>
 
             {/* Pagination */}
-            {filteredEmployees.length > 0 && (
+            {filteredContacts.length > 0 && (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-border text-xs text-[#666666]">
                 <div>
                   Showing{' '}
@@ -393,11 +507,11 @@ export default function ContactPage() {
                   </span>{' '}
                   to{' '}
                   <span className="font-semibold text-[#111111]">
-                    {Math.min(currentPage * PAGE_SIZE, filteredEmployees.length)}
+                    {Math.min(currentPage * PAGE_SIZE, filteredContacts.length)}
                   </span>{' '}
                   of{' '}
                   <span className="font-semibold text-[#111111]">
-                    {filteredEmployees.length.toLocaleString()}
+                    {filteredContacts.length.toLocaleString()}
                   </span>{' '}
                   employees
                 </div>
@@ -429,10 +543,4 @@ export default function ContactPage() {
       )}
     </div>
   )
-}
-
-// ── Helpers (internal) ────────────────────────────────────────────────────────
-
-function formatProbability(p: number): string {
-  return `${(p * 100).toFixed(1)}%`
 }

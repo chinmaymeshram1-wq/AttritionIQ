@@ -199,11 +199,21 @@ class BatchService:
                 risk_level = settings.get_risk_level(probability)
                 explanation_data = self.explainer.explain(features, probability)
 
+                # Preserve ALL raw CSV columns (including contact fields, name, phone, address, etc.)
+                raw_snapshot = {}
+                for col in df.columns:
+                    val = row[col]
+                    if hasattr(val, "item"):
+                        val = val.item()
+                    if isinstance(val, float) and math.isnan(val):
+                        val = None
+                    raw_snapshot[col] = val
+
                 employee = Employee(
                     id=str(uuid.uuid4()),
                     employee_number=emp_num,
                     dataset_id=self.dataset_id,
-                    feature_snapshot=features,
+                    feature_snapshot=raw_snapshot,
                 )
                 self.db.add(employee)
                 await self.db.flush()

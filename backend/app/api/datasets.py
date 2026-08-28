@@ -163,7 +163,31 @@ async def delete_dataset(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found.")
 
-    await db.delete(dataset)
+    # 1. Fetch all prediction IDs belonging to this dataset for explicit explanation cleanup
+    pred_ids_stmt = select(Prediction.id).where(Prediction.dataset_id == dataset_id)
+    pred_ids_res = await db.execute(pred_ids_stmt)
+    pred_ids = pred_ids_res.scalars().all()
+
+    if pred_ids:
+        # 2. Delete prediction explanations first (child of predictions)
+        from app.models.prediction_explanation import PredictionExplanation
+        await db.execute(
+            delete(PredictionExplanation).where(PredictionExplanation.prediction_id.in_(pred_ids))
+        )
+        # 3. Delete predictions (child of datasets and employees)
+        await db.execute(
+            delete(Prediction).where(Prediction.id.in_(pred_ids))
+        )
+
+    # 4. Delete employee records (child of datasets)
+    await db.execute(
+        delete(Employee).where(Employee.dataset_id == dataset_id)
+    )
+
+    # 5. Delete the dataset record itself
+    await db.execute(
+        delete(Dataset).where(Dataset.id == dataset_id)
+    )
     await db.commit()
 
     return {"message": f"Dataset {dataset.dataset_number:02d} deleted successfully."}

@@ -1,13 +1,32 @@
 import os
 import pytest
 import io
+import pandas as pd
+from sqlalchemy import select, func
+from app.models.employee import Employee
+from app.models.prediction import Prediction
+from app.models.prediction_explanation import PredictionExplanation
+from app.models.dataset import Dataset
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "WA_Fn-UseC_-HR-Employee-Attrition.csv")
+
 
 def get_test_csv_bytes(slice_lines: int = 10) -> bytes:
     with open(CSV_PATH, "r", encoding="utf-8") as f:
         lines = [f.readline() for _ in range(slice_lines + 1)]
     return "".join(lines).encode("utf-8")
+
+
+def get_test_csv_with_contacts_bytes(slice_lines: int = 5) -> bytes:
+    """Generate CSV containing IBM features PLUS extra contact columns (Name, Email, Phone, Address)."""
+    df = pd.read_csv(CSV_PATH, nrows=slice_lines)
+    df["EmployeeName"] = [f"Jane Doe {i+1}" for i in range(len(df))]
+    df["Email"] = [f"emp{df.iloc[i]['EmployeeNumber']}@company.com" for i in range(len(df))]
+    df["Phone"] = [f"+1-555-010{i+1}" for i in range(len(df))]
+    df["Address"] = [f"{100 + i} Enterprise Blvd, New York, NY" for i in range(len(df))]
+    buf = io.BytesIO()
+    df.to_csv(buf, index=False)
+    return buf.getvalue()
 
 
 @pytest.fixture(autouse=True)
@@ -87,8 +106,138 @@ async def test_maximum_7_datasets_limit(client, db_session, test_user):
 
 
 @pytest.mark.asyncio
+async def test_cascade_dataset_deletion(client, db_session, test_user):
+    """Test that DELETE /datasets/{id} cleanly and atomically deletes Dataset, Employees, Predictions, and Explanations."""
+    auth_headers = {"Authorization": f"Bearer {test_user['token']}"}
+
+    # Upload Dataset 01 (5 employees)
+    ds1_res = await client.post("/datasets/upload", files={"file": ("d1.csv", io.BytesIO(get_test_csv_bytes(5)), "text/csv")}, headers=auth_headers)
+    assert ds1_res.status_code == 200
+    ds1_id = ds1_res.json()["id"]
+
+    # Upload Dataset 02 (3 employees)
+    ds2_res = await client.post("/datasets/upload", files={"file": ("d2.csv", io.BytesIO(get_test_csv_bytes(3)), "text/csv")}, headers=auth_headers)
+    assert ds2_res.status_code == 200
+    ds2_id = ds2_res.json()["id"]
+
+    # Verify records exist in DB for Dataset 01
+    emp_count = (await db_session.execute(select(func.count(Employee.id)).where(Employee.dataset_id == ds1_id))).scalar_one()
+    assert emp_count == 5
+
+    pred_count = (await db_session.execute(select(func.count(Prediction.id)).where(Prediction.dataset_id == ds1_id))).scalar_one()
+    assert pred_count == 5
+
+    # Delete Dataset 01
+    del_res = await client.delete(f"/datasets/{ds1_id}", headers=auth_headers)
+    assert del_res.status_code == 200, del_res.text
+
+    # Verify Dataset 01 and all its children are completely gone
+    assert (await db_session.execute(select(func.count(Dataset.id)).where(Dataset.id == ds1_id))).scalar_one() == 0
+    assert (await db_session.execute(select(func.count(Employee.id)).where(Employee.dataset_id == ds1_id))).scalar_one() == 0
+    assert (await db_session.execute(select(func.count(Prediction.id)).where(Prediction.dataset_id == ds1_id))).scalar_one() == 0
+
+    # Verify Dataset 02 remains healthy and untouched
+    assert (await db_session.execute(select(func.count(Dataset.id)).where(Dataset.id == ds2_id))).scalar_one() == 1
+    assert (await db_session.execute(select(func.count(Employee.id)).where(Employee.dataset_id == ds2_id))).scalar_one() == 3
+
+
+@pytest.mark.asyncio
+async def test_raw_csv_contact_fields_preserved(client, db_session, test_user):
+    """Test that custom contact columns in uploaded CSV (Name, Email, Phone, Address) are preserved in feature_snapshot."""
+    auth_headers = {"Authorization": f"Bearer {test_user['token']}"}
+
+    csv_bytes = get_test_csv_with_contacts_bytes(4)
+    files = {"file": ("contacts_dataset.csv", io.BytesIO(csv_bytes), "text/csv")}
+
+    upload_res = await client.post("/datasets/upload", files=files, headers=auth_headers)
+    assert upload_res.status_code == 200, upload_res.text
+    ds_id = upload_res.json()["id"]
+
+    # Verify list employees with risk includes preserved feature_snapshot
+    list_res = await client.get(f"/employees?dataset_id={ds_id}&include_risk=true", headers=auth_headers)
+    assert list_res.status_code == 200
+    employees = list_res.json()["employees"]
+    assert len(employees) == 4
+
+    first_emp = employees[0]
+    snap = first_emp["feature_snapshot"]
+    assert snap is not None
+    assert "EmployeeName" in snap
+    assert "Jane Doe 1" in snap["EmployeeName"]
+    assert "Email" in snap
+    assert "@company.com" in snap["Email"]
+    assert "Phone" in snap
+    assert "Address" in snap
+
+    # Verify individual employee lookup preserves contact snapshot
+    emp_num = first_emp["employee_number"]
+    detail_res = await client.get(f"/employees/{emp_num}?dataset_id={ds_id}", headers=auth_headers)
+    assert detail_res.status_code == 200
+    detail_snap = detail_res.json()["employee"]["feature_snapshot"]
+    assert detail_snap["Email"] == snap["Email"]
+
+
+@pytest.mark.asyncio
+async def test_analytics_endpoints_without_json_extract_error(client, db_session, test_user):
+    """Test overview, department, and job-role analytics endpoints work engine-agnostically with dataset_id."""
+    auth_headers = {"Authorization": f"Bearer {test_user['token']}"}
+
+    # Upload Dataset 01
+    ds1_res = await client.post("/datasets/upload", files={"file": ("d1.csv", io.BytesIO(get_test_csv_bytes(10)), "text/csv")}, headers=auth_headers)
+    assert ds1_res.status_code == 200
+    ds1_id = ds1_res.json()["id"]
+
+    # 1. Overview analytics
+    ov_res = await client.get(f"/analytics/overview?dataset_id={ds1_id}", headers=auth_headers)
+    assert ov_res.status_code == 200, ov_res.text
+    ov_data = ov_res.json()
+    assert "risk_distribution" in ov_data
+    assert "overtime_risk" in ov_data
+
+    # 2. Department analytics
+    dept_res = await client.get(f"/analytics/department?dataset_id={ds1_id}", headers=auth_headers)
+    assert dept_res.status_code == 200, dept_res.text
+    dept_data = dept_res.json()
+    assert "departments" in dept_data
+    assert len(dept_data["departments"]) > 0
+
+    # 3. Job role analytics
+    role_res = await client.get(f"/analytics/job-role?dataset_id={ds1_id}", headers=auth_headers)
+    assert role_res.status_code == 200, role_res.text
+    role_data = role_res.json()
+    assert "job_roles" in role_data
+    assert len(role_data["job_roles"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_dataset_number_reuse_after_deletion(client, db_session, test_user):
+    """Test that deleting Dataset 01 allows the next uploaded dataset to reuse dataset_number 1."""
+    auth_headers = {"Authorization": f"Bearer {test_user['token']}"}
+
+    # Upload Dataset 01
+    ds1_res = await client.post("/datasets/upload", files={"file": ("d1.csv", io.BytesIO(get_test_csv_bytes(2)), "text/csv")}, headers=auth_headers)
+    assert ds1_res.status_code == 200
+    ds1 = ds1_res.json()
+    assert ds1["dataset_number"] == 1
+
+    # Upload Dataset 02
+    ds2_res = await client.post("/datasets/upload", files={"file": ("d2.csv", io.BytesIO(get_test_csv_bytes(2)), "text/csv")}, headers=auth_headers)
+    assert ds2_res.status_code == 200
+    ds2 = ds2_res.json()
+    assert ds2["dataset_number"] == 2
+
+    # Delete Dataset 01
+    await client.delete(f"/datasets/{ds1['id']}", headers=auth_headers)
+
+    # Upload new dataset -> should reuse dataset_number 1
+    ds_new_res = await client.post("/datasets/upload", files={"file": ("d_new.csv", io.BytesIO(get_test_csv_bytes(2)), "text/csv")}, headers=auth_headers)
+    assert ds_new_res.status_code == 200
+    assert ds_new_res.json()["dataset_number"] == 1
+
+
+@pytest.mark.asyncio
 async def test_duplicate_employee_12_in_different_datasets(client, db_session, test_user):
-    """Test that Employee #12 can exist independently in Dataset 01 and Dataset 02."""
+    """Test that Employee #1 can exist independently in Dataset 01 and Dataset 02."""
     auth_headers = {"Authorization": f"Bearer {test_user['token']}"}
 
     csv_bytes = get_test_csv_bytes(15)
@@ -196,3 +345,31 @@ async def test_individual_prediction_does_not_affect_dataset_counts(client, db_s
     # Dataset count must remain 5
     dash_after = (await client.get(f"/dashboard/summary?dataset_id={ds1['id']}", headers=auth_headers)).json()
     assert dash_after["total_employees_analyzed"] == 5
+
+
+@pytest.mark.asyncio
+async def test_employee_search_is_read_only_and_does_not_change_counts(client, db_session, test_user):
+    """Test that querying employee profiles via Employee Search is strictly read-only and never increases counts."""
+    auth_headers = {"Authorization": f"Bearer {test_user['token']}"}
+
+    # Upload Dataset 01 with 5 employees
+    ds1_res = await client.post("/datasets/upload", files={"file": ("d1.csv", io.BytesIO(get_test_csv_bytes(5)), "text/csv")}, headers=auth_headers)
+    assert ds1_res.status_code == 200
+    ds1_id = ds1_res.json()["id"]
+
+    # Initial employee count in DB
+    init_count = (await db_session.execute(select(func.count(Employee.id)).where(Employee.dataset_id == ds1_id))).scalar_one()
+    assert init_count == 5
+
+    # Query Employee #1 multiple times
+    for _ in range(3):
+        res = await client.get(f"/employees/1?dataset_id={ds1_id}", headers=auth_headers)
+        assert res.status_code == 200
+
+    # Query non-existent Employee #999
+    res_404 = await client.get(f"/employees/999?dataset_id={ds1_id}", headers=auth_headers)
+    assert res_404.status_code == 404
+
+    # DB employee count must still be exactly 5
+    final_count = (await db_session.execute(select(func.count(Employee.id)).where(Employee.dataset_id == ds1_id))).scalar_one()
+    assert final_count == 5

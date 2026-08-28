@@ -87,8 +87,18 @@ export const useDatasetStore = create<DatasetState>()(
           })
           const newDataset = res.data
 
-          await get().fetchDatasets()
-          set({ activeDatasetId: newDataset.id, uploading: false })
+          // Fetch fresh list from server to get accurate dataset numbers and metadata
+          const listRes = await api.get<DatasetListResponse>('/datasets')
+          const updatedDatasets = listRes.data.datasets || [newDataset]
+
+          set({
+            datasets: updatedDatasets,
+            activeDatasetId: newDataset.id,
+            maxAllowed: listRes.data.max_allowed || 7,
+            uploading: false,
+            loading: false,
+            error: null,
+          })
           return newDataset
         } catch (err: any) {
           const msg = err.response?.data?.detail || 'Failed to upload dataset'
@@ -101,7 +111,10 @@ export const useDatasetStore = create<DatasetState>()(
         set({ loading: true, error: null })
         try {
           await api.delete(`/datasets/${id}`)
-          const updatedDatasets = get().datasets.filter((d) => d.id !== id)
+          
+          // Refetch fresh list directly from backend
+          const listRes = await api.get<DatasetListResponse>('/datasets')
+          const updatedDatasets = listRes.data.datasets || []
           const currentActive = get().activeDatasetId
 
           let newActive = currentActive
@@ -113,7 +126,9 @@ export const useDatasetStore = create<DatasetState>()(
           set({
             datasets: updatedDatasets,
             activeDatasetId: newActive,
+            maxAllowed: listRes.data.max_allowed || 7,
             loading: false,
+            error: null,
           })
         } catch (err: any) {
           const msg = err.response?.data?.detail || 'Failed to delete dataset'

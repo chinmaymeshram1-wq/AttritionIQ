@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -31,24 +31,36 @@ async def analytics_overview(
     if not active_dataset_id:
         return {"risk_distribution": {}, "overtime_risk": {}}
 
-    risk_stmt = (
-        select(Prediction.risk_level, func.count(Prediction.id))
+    # Fetch predictions for this dataset (excluding standalone predictions)
+    stmt = (
+        select(Prediction.risk_level, Prediction.attrition_probability, Prediction.input_features)
         .where(Prediction.dataset_id == active_dataset_id, Prediction.is_standalone == False)
-        .group_by(Prediction.risk_level)
     )
-    risk_result = await db.execute(risk_stmt)
-    risk_dist = {row[0]: row[1] for row in risk_result.all()}
+    result = await db.execute(stmt)
+    predictions = result.all()
 
-    ot_stmt = (
-        select(
-            func.json_extract(Prediction.input_features, "$.overtime").label("ot"),
-            func.avg(Prediction.attrition_probability).label("avg_prob"),
-        )
-        .where(Prediction.dataset_id == active_dataset_id, Prediction.is_standalone == False)
-        .group_by("ot")
-    )
-    ot_result = await db.execute(ot_stmt)
-    overtime_risk = {r[0]: round(float(r[1] or 0), 4) for r in ot_result.all() if r[0]}
+    risk_dist: Dict[str, int] = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    ot_groups: Dict[str, List[float]] = {}
+
+    for risk_level, prob, features in predictions:
+        if risk_level in risk_dist:
+            risk_dist[risk_level] += 1
+        else:
+            risk_dist[risk_level] = 1
+
+        if features and isinstance(features, dict):
+            # Check for overtime field (handles 'overtime' or 'OverTime' or 'over_time')
+            ot_val = features.get("overtime") or features.get("OverTime") or features.get("over_time")
+            if ot_val:
+                ot_str = str(ot_val).strip()
+                if ot_str not in ot_groups:
+                    ot_groups[ot_str] = []
+                ot_groups[ot_str].append(float(prob))
+
+    overtime_risk: Dict[str, float] = {}
+    for ot_val, probs in ot_groups.items():
+        if probs:
+            overtime_risk[ot_val] = round(sum(probs) / len(probs), 4)
 
     return {
         "risk_distribution": risk_dist,
@@ -67,29 +79,44 @@ async def analytics_department(
         return {"departments": []}
 
     stmt = (
-        select(
-            func.json_extract(Prediction.input_features, "$.department").label("dept"),
-            Prediction.risk_level,
-            func.count(Prediction.id).label("count"),
-            func.avg(Prediction.attrition_probability).label("avg_prob"),
-        )
+        select(Prediction.risk_level, Prediction.attrition_probability, Prediction.input_features)
         .where(Prediction.dataset_id == active_dataset_id, Prediction.is_standalone == False)
-        .group_by("dept", Prediction.risk_level)
     )
     result = await db.execute(stmt)
-    rows = result.all()
+    predictions = result.all()
 
-    agg: dict = {}
-    for dept, risk, count, avg_prob in rows:
+    agg: Dict[str, Dict[str, Any]] = {}
+
+    for risk_level, prob, features in predictions:
+        dept = None
+        if features and isinstance(features, dict):
+            dept = features.get("department") or features.get("Department")
         if not dept:
             continue
-        if dept not in agg:
-            agg[dept] = {"department": dept, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "avg_probability": 0.0, "total": 0}
-        agg[dept][risk] = count
-        agg[dept]["total"] += count
-        agg[dept]["avg_probability"] = round(float(avg_prob or 0), 4)
+        dept_str = str(dept).strip()
 
-    return {"departments": list(agg.values())}
+        if dept_str not in agg:
+            agg[dept_str] = {
+                "department": dept_str,
+                "HIGH": 0,
+                "MEDIUM": 0,
+                "LOW": 0,
+                "total": 0,
+                "_probs": [],
+            }
+
+        if risk_level in ("HIGH", "MEDIUM", "LOW"):
+            agg[dept_str][risk_level] += 1
+        agg[dept_str]["total"] += 1
+        agg[dept_str]["_probs"].append(float(prob))
+
+    departments_list = []
+    for dept_str, data in agg.items():
+        probs = data.pop("_probs")
+        data["avg_probability"] = round(sum(probs) / len(probs), 4) if probs else 0.0
+        departments_list.append(data)
+
+    return {"departments": departments_list}
 
 
 @router.get("/job-role")
@@ -103,26 +130,41 @@ async def analytics_job_role(
         return {"job_roles": []}
 
     stmt = (
-        select(
-            func.json_extract(Prediction.input_features, "$.job_role").label("role"),
-            Prediction.risk_level,
-            func.count(Prediction.id).label("count"),
-            func.avg(Prediction.attrition_probability).label("avg_prob"),
-        )
+        select(Prediction.risk_level, Prediction.attrition_probability, Prediction.input_features)
         .where(Prediction.dataset_id == active_dataset_id, Prediction.is_standalone == False)
-        .group_by("role", Prediction.risk_level)
     )
     result = await db.execute(stmt)
-    rows = result.all()
+    predictions = result.all()
 
-    agg: dict = {}
-    for role, risk, count, avg_prob in rows:
+    agg: Dict[str, Dict[str, Any]] = {}
+
+    for risk_level, prob, features in predictions:
+        role = None
+        if features and isinstance(features, dict):
+            role = features.get("job_role") or features.get("JobRole")
         if not role:
             continue
-        if role not in agg:
-            agg[role] = {"job_role": role, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "avg_probability": 0.0, "total": 0}
-        agg[role][risk] = count
-        agg[role]["total"] += count
-        agg[role]["avg_probability"] = round(float(avg_prob or 0), 4)
+        role_str = str(role).strip()
 
-    return {"job_roles": list(agg.values())}
+        if role_str not in agg:
+            agg[role_str] = {
+                "job_role": role_str,
+                "HIGH": 0,
+                "MEDIUM": 0,
+                "LOW": 0,
+                "total": 0,
+                "_probs": [],
+            }
+
+        if risk_level in ("HIGH", "MEDIUM", "LOW"):
+            agg[role_str][risk_level] += 1
+        agg[role_str]["total"] += 1
+        agg[role_str]["_probs"].append(float(prob))
+
+    roles_list = []
+    for role_str, data in agg.items():
+        probs = data.pop("_probs")
+        data["avg_probability"] = round(sum(probs) / len(probs), 4) if probs else 0.0
+        roles_list.append(data)
+
+    return {"job_roles": roles_list}
