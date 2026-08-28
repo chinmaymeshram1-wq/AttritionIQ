@@ -122,35 +122,92 @@ interface RetentionActionItem {
   isElevating: boolean
 }
 
+function getSnapshotRawValue(snapshot: Record<string, unknown>, aliases: string[]): unknown {
+  if (!snapshot || typeof snapshot !== 'object') return undefined
+
+  const candidateObjects: Record<string, unknown>[] = [snapshot]
+  if (snapshot.feature_snapshot && typeof snapshot.feature_snapshot === 'object') {
+    candidateObjects.push(snapshot.feature_snapshot as Record<string, unknown>)
+  }
+  if (snapshot.features && typeof snapshot.features === 'object') {
+    candidateObjects.push(snapshot.features as Record<string, unknown>)
+  }
+
+  const normalizedAliases = aliases.map(a => a.toLowerCase().replace(/[^a-z0-9]/g, ''))
+
+  for (const obj of candidateObjects) {
+    for (const [k, v] of Object.entries(obj)) {
+      const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '')
+      if (normalizedAliases.includes(normK) && v !== null && v !== undefined) {
+        const s = String(v).trim()
+        if (s !== '' && s.toLowerCase() !== 'nan' && s.toLowerCase() !== 'null' && s.toLowerCase() !== 'undefined') {
+          return v
+        }
+      }
+    }
+  }
+  return undefined
+}
+
+function parseSnapshotNumber(val: unknown): number | null {
+  if (val === null || val === undefined) return null
+  if (typeof val === 'number') return isFinite(val) ? val : null
+  const cleaned = String(val).replace(/[^0-9.-]/g, '').trim()
+  if (cleaned === '' || cleaned === '-' || cleaned === '.' || cleaned.toLowerCase() === 'nan') return null
+  const num = Number(cleaned)
+  return isFinite(num) ? num : null
+}
+
+function parseSnapshotBooleanOrOvertime(val: unknown): boolean {
+  if (val === null || val === undefined) return false
+  if (typeof val === 'boolean') return val
+  if (typeof val === 'number') return val === 1
+  const s = String(val).trim().toLowerCase()
+  return ['yes', 'true', '1', 'y', 'mandatory', 'frequent', 'always'].includes(s)
+}
+
 function buildRetentionActionPlan(
   snapshot: Record<string, unknown>,
   shapRiskFactors?: Array<{ display_name: string; feature: string; shap_value: number }>
 ): RetentionActionItem[] {
   const items: RetentionActionItem[] = []
-  const riskFeatureNames = (shapRiskFactors || []).map(f => f.feature.toLowerCase())
+  const riskFeatureNames = Array.isArray(shapRiskFactors)
+    ? shapRiskFactors.map(f => (f?.feature || f?.display_name || '').toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean)
+    : []
+
+  const isShapElevating = (...featureKeys: string[]) => {
+    const normalizedKeys = featureKeys.map(k => k.toLowerCase().replace(/[^a-z0-9]/g, ''))
+    return riskFeatureNames.some(rf => normalizedKeys.some(k => rf.includes(k) || k.includes(rf)))
+  }
 
   // 1. OverTime
-  const ot = snapshot['OverTime'] ?? snapshot['overtime'] ?? snapshot['over_time']
-  if (ot !== undefined && String(ot).toLowerCase() === 'yes') {
+  const otRaw = getSnapshotRawValue(snapshot, ['OverTime', 'overtime', 'over_time', 'over time', 'ot', 'workingovertime', 'working_overtime'])
+  const isOverTimeActive = parseSnapshotBooleanOrOvertime(otRaw)
+  if (isOverTimeActive || (otRaw !== undefined && isShapElevating('overtime', 'over_time', 'ot'))) {
     items.push({
       factor: 'Overtime',
       currentValue: 'Yes (Mandatory / Frequent)',
       recommendedTarget: 'No (Standard 40h workweek)',
-      proposedChange: 'Transition to standard hours or rebalance workload across team',
+      proposedChange: 'Workload review, overtime reduction, and staffing/work allocation review',
       riskImpact: 'High Risk Reducer (Primary Attrition Driver)',
       isElevating: true,
     })
   }
 
-  // 2. Monthly Income
-  const income = Number(snapshot['MonthlyIncome'] ?? snapshot['monthly_income'])
-  if (!isNaN(income) && income > 0) {
-    if (income < 3500) {
+  // 2. Monthly Income / Compensation
+  const incomeRaw = getSnapshotRawValue(snapshot, [
+    'MonthlyIncome', 'monthly_income', 'monthly income', 'monthlyincome',
+    'Salary', 'salary', 'Compensation', 'compensation', 'BaseSalary', 'base_salary', 'income',
+    'monthlysalary', 'monthly_salary', 'monthly compensation'
+  ])
+  const income = parseSnapshotNumber(incomeRaw)
+  if (income !== null && income > 0) {
+    if (income < 3500 || (income < 4500 && isShapElevating('monthly_income', 'monthlyincome', 'salary', 'income', 'compensation'))) {
       items.push({
         factor: 'Monthly Compensation',
         currentValue: `$${income.toLocaleString()}`,
         recommendedTarget: '$4,000+ / month (Market Median)',
-        proposedChange: 'Perform salary benchmark adjustment (+15% to +25%)',
+        proposedChange: 'Compensation benchmark review and salary adjustment discussion (+15% to +25%)',
         riskImpact: 'Moderate Risk Reducer (Compensation Alignment)',
         isElevating: true,
       })
@@ -158,67 +215,153 @@ function buildRetentionActionPlan(
   }
 
   // 3. Job Satisfaction
-  const jobSat = Number(snapshot['JobSatisfaction'] ?? snapshot['job_satisfaction'])
-  if (!isNaN(jobSat) && jobSat <= 2) {
+  const jobSatRaw = getSnapshotRawValue(snapshot, [
+    'JobSatisfaction', 'job_satisfaction', 'job satisfaction', 'jobsatisfaction', 'satisfaction', 'jobsatisfactionscore'
+  ])
+  const jobSat = parseSnapshotNumber(jobSatRaw)
+  if (jobSat !== null && (jobSat <= 2 || isShapElevating('job_satisfaction', 'jobsatisfaction', 'satisfaction'))) {
     items.push({
       factor: 'Job Satisfaction',
-      currentValue: `${jobSat} / 4 (Low)`,
+      currentValue: `${jobSat} / 4 (${jobSat <= 2 ? 'Low' : 'Moderate'})`,
       recommendedTarget: '3+ / 4 (Satisfied)',
-      proposedChange: 'Conduct 1-on-1 career check-in, review project assignments and autonomy',
+      proposedChange: 'Manager 1-on-1, engagement review, and workload/project autonomy discussion',
       riskImpact: 'High Risk Reducer (Engagement & Morale)',
       isElevating: true,
     })
   }
 
   // 4. Work-Life Balance
-  const wlb = Number(snapshot['WorkLifeBalance'] ?? snapshot['work_life_balance'])
-  if (!isNaN(wlb) && wlb <= 2) {
+  const wlbRaw = getSnapshotRawValue(snapshot, [
+    'WorkLifeBalance', 'work_life_balance', 'work life balance', 'worklifebalance', 'wlb', 'worklife'
+  ])
+  const wlb = parseSnapshotNumber(wlbRaw)
+  if (wlb !== null && (wlb <= 2 || isShapElevating('work_life_balance', 'worklifebalance', 'wlb'))) {
     items.push({
       factor: 'Work-Life Balance',
-      currentValue: `${wlb} / 4 (Low / Strained)`,
+      currentValue: `${wlb} / 4 (${wlb <= 2 ? 'Low / Strained' : 'Moderate'})`,
       recommendedTarget: '3+ / 4 (Good Balance)',
-      proposedChange: 'Introduce flexible working hours or remote work options',
+      proposedChange: 'Workload review, flexible scheduling, and work-life balance intervention',
       riskImpact: 'High Risk Reducer (Burnout Prevention)',
       isElevating: true,
     })
   }
 
   // 5. Environment Satisfaction
-  const envSat = Number(snapshot['EnvironmentSatisfaction'] ?? snapshot['environment_satisfaction'])
-  if (!isNaN(envSat) && envSat <= 2) {
+  const envSatRaw = getSnapshotRawValue(snapshot, [
+    'EnvironmentSatisfaction', 'environment_satisfaction', 'environment satisfaction', 'environmentsatisfaction', 'envsatisfaction'
+  ])
+  const envSat = parseSnapshotNumber(envSatRaw)
+  if (envSat !== null && (envSat <= 2 || isShapElevating('environment_satisfaction', 'environmentsatisfaction'))) {
     items.push({
       factor: 'Environment Satisfaction',
-      currentValue: `${envSat} / 4 (Dissatisfied)`,
+      currentValue: `${envSat} / 4 (${envSat <= 2 ? 'Dissatisfied' : 'Neutral'})`,
       recommendedTarget: '3+ / 4 (Favorable)',
-      proposedChange: 'Review workplace tooling, team dynamics, and manager feedback loop',
+      proposedChange: 'Workplace/team environment review, tooling audit, and manager feedback loop',
       riskImpact: 'Moderate Risk Reducer (Workplace Culture)',
       isElevating: true,
     })
   }
 
   // 6. Stock Option Level
-  const stock = Number(snapshot['StockOptionLevel'] ?? snapshot['stock_option_level'])
-  if (!isNaN(stock) && stock === 0) {
+  const stockRaw = getSnapshotRawValue(snapshot, [
+    'StockOptionLevel', 'stock_option_level', 'stock option level', 'stockoptionlevel',
+    'StockOptions', 'stock_options', 'Equity', 'equity', 'stocklevel', 'stock'
+  ])
+  const stock = parseSnapshotNumber(stockRaw)
+  if (stock !== null && (stock === 0 || isShapElevating('stock_option_level', 'stockoptionlevel', 'stock', 'equity'))) {
     items.push({
       factor: 'Equity / Stock Incentive',
-      currentValue: 'Level 0 (No Options)',
+      currentValue: `Level ${stock} (${stock === 0 ? 'No Options' : 'Minimal Options'})`,
       recommendedTarget: 'Level 1+ (Retention Grant)',
-      proposedChange: 'Grant annual stock option / long-term incentive vesting package',
+      proposedChange: 'Review retention and long-term benefit package with stock option grant',
       riskImpact: 'Moderate Risk Reducer (Long-term Retention)',
-      isElevating: riskFeatureNames.some(f => f.includes('stock')),
+      isElevating: isShapElevating('stock_option_level', 'stockoptionlevel', 'stock', 'equity'),
     })
   }
 
   // 7. Salary Hike %
-  const hike = Number(snapshot['PercentSalaryHike'] ?? snapshot['percent_salary_hike'])
-  if (!isNaN(hike) && hike < 14) {
+  const hikeRaw = getSnapshotRawValue(snapshot, [
+    'PercentSalaryHike', 'percent_salary_hike', 'percent salary hike', 'percentsalaryhike',
+    'SalaryHike', 'salary_hike', 'salary hike', 'hike', 'percenthike'
+  ])
+  const hike = parseSnapshotNumber(hikeRaw)
+  if (hike !== null && (hike < 14 || isShapElevating('percent_salary_hike', 'percentsalaryhike', 'hike'))) {
     items.push({
       factor: 'Salary Hike %',
-      currentValue: `${hike}% (Below Average)`,
+      currentValue: `${hike}% (${hike < 14 ? 'Below Average' : 'Moderate'})`,
       recommendedTarget: '15% – 18% (Target Retention Band)',
-      proposedChange: 'Include in next merit cycle review for competitive increase',
+      proposedChange: 'Compensation growth review and competitive increase in next merit cycle',
       riskImpact: 'Moderate Risk Reducer',
-      isElevating: false,
+      isElevating: isShapElevating('percent_salary_hike', 'percentsalaryhike', 'hike'),
+    })
+  }
+
+  // 8. Years Since Last Promotion
+  const promoRaw = getSnapshotRawValue(snapshot, [
+    'YearsSinceLastPromotion', 'years_since_last_promotion', 'years since last promotion',
+    'yearssincelastpromotion', 'time_since_promotion', 'promoyears', 'yearssincelastpromo',
+    'lastpromotionyears', 'years_since_promotion', 'promotionstagnation'
+  ])
+  const promoYears = parseSnapshotNumber(promoRaw)
+  if (promoYears !== null && (promoYears >= 3 || isShapElevating('years_since_last_promotion', 'yearssincelastpromotion', 'promotion'))) {
+    items.push({
+      factor: 'Career Progression / Promotion',
+      currentValue: `${promoYears} year${promoYears === 1 ? '' : 's'} since promotion`,
+      recommendedTarget: 'Promotion / Growth Roadmap',
+      proposedChange: 'Career progression discussion, promotion roadmap, and role/responsibility review',
+      riskImpact: 'High Risk Reducer (Career Advancement)',
+      isElevating: true,
+    })
+  }
+
+  // 9. Distance From Home / Commute
+  const distanceRaw = getSnapshotRawValue(snapshot, [
+    'DistanceFromHome', 'distance_from_home', 'distance from home', 'distancefromhome',
+    'Commute', 'commute', 'Distance', 'distance', 'distance_home', 'distancehome', 'commutedistance'
+  ])
+  const distance = parseSnapshotNumber(distanceRaw)
+  if (distance !== null && (distance >= 15 || isShapElevating('distance_from_home', 'distancefromhome', 'commute'))) {
+    items.push({
+      factor: 'Commute & Travel Distance',
+      currentValue: `${distance} miles (Long Commute)`,
+      recommendedTarget: 'Hybrid / Remote Work Flexibility',
+      proposedChange: 'Hybrid/remote work discussion, commute support, and location/shift flexibility',
+      riskImpact: 'Moderate Risk Reducer (Commute Relief)',
+      isElevating: true,
+    })
+  }
+
+  // 10. Job Involvement
+  const involvementRaw = getSnapshotRawValue(snapshot, [
+    'JobInvolvement', 'job_involvement', 'job involvement', 'jobinvolvement', 'involvement', 'jobinvolvementscore'
+  ])
+  const involvement = parseSnapshotNumber(involvementRaw)
+  if (involvement !== null && (involvement <= 2 || isShapElevating('job_involvement', 'jobinvolvement'))) {
+    items.push({
+      factor: 'Job Involvement & Ownership',
+      currentValue: `${involvement} / 4 (${involvement <= 2 ? 'Low Involvement' : 'Moderate'})`,
+      recommendedTarget: '3+ / 4 (Active Ownership)',
+      proposedChange: 'Increase project ownership, role clarity, meaningful project assignment, and manager 1-on-1',
+      riskImpact: 'Moderate Risk Reducer (Engagement)',
+      isElevating: true,
+    })
+  }
+
+  // 11. Years In Current Role
+  const roleRaw = getSnapshotRawValue(snapshot, [
+    'YearsInCurrentRole', 'years_in_current_role', 'years in current role',
+    'yearsincurrentrole', 'time_in_role', 'roleyears', 'years_in_role', 'timeinrole',
+    'years_current_role', 'yearscurrentrole'
+  ])
+  const roleYears = parseSnapshotNumber(roleRaw)
+  if (roleYears !== null && (roleYears >= 5 || isShapElevating('years_in_current_role', 'yearsincurrentrole', 'current_role'))) {
+    items.push({
+      factor: 'Role Tenure & Stagnation',
+      currentValue: `${roleYears} year${roleYears === 1 ? '' : 's'} in current role`,
+      recommendedTarget: 'Role Progression / Lateral Rotation',
+      proposedChange: 'Conduct career mobility check, explore lateral rotation or expanded leadership scope',
+      riskImpact: 'Moderate Risk Reducer (Career Growth)',
+      isElevating: true,
     })
   }
 
