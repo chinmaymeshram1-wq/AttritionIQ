@@ -93,6 +93,44 @@ async def seed_initial_data(db: AsyncSession) -> None:
             print(msg, flush=True)
             logger.info(msg)
 
+        # ── Second demo user: try123@example.com ──────────────────────────
+        demo2_email = "try123@example.com"
+        demo2_password = "try@123"
+
+        demo2_result = await db.execute(
+            select(User).where(User.email == demo2_email)
+        )
+        demo2_user = demo2_result.scalar_one_or_none()
+
+        if not demo2_user:
+            demo2_user = User(
+                id=str(uuid.uuid4()),
+                full_name="Demo User",
+                email=demo2_email,
+                hashed_password=hash_password(demo2_password),
+                is_active=True,
+                is_admin=False,
+                organization_id=default_org.id,
+            )
+            db.add(demo2_user)
+            await db.commit()
+
+            msg = f"[AUTH] Second demo account created: {demo2_email}"
+            print(msg, flush=True)
+            logger.info(msg)
+        else:
+            # Ensure password and active status are correct
+            if not verify_password(demo2_password, demo2_user.hashed_password):
+                demo2_user.hashed_password = hash_password(demo2_password)
+            demo2_user.is_active = True
+            if not demo2_user.organization_id:
+                demo2_user.organization_id = default_org.id
+            await db.commit()
+
+            msg = f"[AUTH] Second demo account verified: {demo2_email}"
+            print(msg, flush=True)
+            logger.info(msg)
+
     except Exception as e:
         await db.rollback()
         err_msg = f"[AUTH] Error during database seeding: {e}"

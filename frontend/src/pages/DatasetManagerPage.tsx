@@ -104,6 +104,24 @@ export default function DatasetManagerPage() {
         )}
       </div>
 
+      {/* CSV Upload Loading Banner — visible for the entire upload request lifecycle */}
+      {uploading && (
+        <div className="flex flex-col gap-1.5 bg-[#F7F7F7] border border-border rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <LoadingSpinner size="sm" />
+            <span className="font-semibold text-xs sm:text-sm text-[#111111]">
+              Dataset is loading. Please wait 2–3 minutes while we process your file.
+            </span>
+          </div>
+          <p className="text-xs text-[#666666] pl-7">
+            Please don't refresh or close this page while the dataset is being processed.
+          </p>
+          <p className="text-xs text-[#8A8A8A] pl-7">
+            If an error appears, please refresh the page and try again.
+          </p>
+        </div>
+      )}
+
       {uploadError && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-lg flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
