@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useDatasetStore } from '@/store/datasetStore'
+import { predictionService } from '@/services/predictionService'
+import type { CompatibilityReport } from '@/types'
+import CompatibilityReportCard from '@/components/CompatibilityReportCard'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import {
   Database, Upload, Trash2, CheckCircle2, AlertTriangle,
-  Clock, FileText, Plus, ShieldCheck, Layers
+  Clock, FileText, Plus, ShieldCheck, Layers, X
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 
@@ -26,6 +29,13 @@ export default function DatasetManagerPage() {
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Pre-flight Compatibility State
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [checkingCompat, setCheckingCompat] = useState(false)
+  const [compatReport, setCompatReport] = useState<CompatibilityReport | null>(null)
+  const [compatError, setCompatError] = useState<string | null>(null)
+  const [showCompatModal, setShowCompatModal] = useState(false)
+
   useEffect(() => {
     fetchDatasets()
   }, [fetchDatasets])
@@ -35,13 +45,49 @@ export default function DatasetManagerPage() {
     if (!file) return
 
     setUploadError(null)
+    setCompatError(null)
+    setCompatReport(null)
+    setSelectedFile(file)
+    setCheckingCompat(true)
+    setShowCompatModal(true)
+
     try {
-      await uploadDataset(file, customName || undefined)
-      setCustomName('')
-      if (fileInputRef.current) fileInputRef.current.value = ''
+      const report = await predictionService.checkBatchCompatibility(file)
+      setCompatReport(report)
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err.message || 'Failed to analyze CSV compatibility.'
+      setCompatError(msg)
+    } finally {
+      setCheckingCompat(false)
+    }
+  }
+
+  const handleConfirmUpload = async () => {
+    if (!selectedFile) return
+    const fileToUpload = selectedFile
+    const nameToUse = customName.trim() || undefined
+
+    setShowCompatModal(false)
+    setSelectedFile(null)
+    setCompatReport(null)
+    setCustomName('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+
+    setUploadError(null)
+    try {
+      await uploadDataset(fileToUpload, nameToUse)
     } catch (err: any) {
       setUploadError(err.message || 'Failed to upload CSV dataset.')
     }
+  }
+
+  const handleCancelUpload = () => {
+    setShowCompatModal(false)
+    setSelectedFile(null)
+    setCompatReport(null)
+    setCompatError(null)
+    setCustomName('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const handleDelete = async (id: string) => {
@@ -75,11 +121,11 @@ export default function DatasetManagerPage() {
             onChange={handleFileChange}
             accept=".csv"
             className="hidden"
-            disabled={datasets.length >= maxAllowed || uploading}
+            disabled={datasets.length >= maxAllowed || uploading || checkingCompat}
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={datasets.length >= maxAllowed || uploading}
+            disabled={datasets.length >= maxAllowed || uploading || checkingCompat}
             className="btn-primary py-2.5 px-4 flex items-center gap-2 shadow-sm text-xs sm:text-sm"
           >
             {uploading ? <LoadingSpinner size="sm" /> : <Upload className="w-4 h-4" />}
@@ -145,6 +191,7 @@ export default function DatasetManagerPage() {
             </p>
             <button
               onClick={() => fileInputRef.current?.click()}
+              disabled={uploading || checkingCompat}
               className="btn-primary mt-4 py-2 px-4 text-xs inline-flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
@@ -254,6 +301,139 @@ export default function DatasetManagerPage() {
           </div>
         )}
       </div>
+
+      {/* Pre-Flight Compatibility Analysis Modal */}
+      {showCompatModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 border border-border shadow-2xl space-y-5 my-8 relative max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-border pb-3 flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[#F7F7F7] border border-border flex items-center justify-center">
+                  <ShieldCheck className="w-4 h-4 text-[#111111]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-[#111111]">
+                    Dataset Compatibility Pre-Flight Check
+                  </h3>
+                  <p className="text-xs text-[#666666]">
+                    Validating column schema against ML model features before upload
+                  </p>
+                </div>
+              </div>
+
+              {!checkingCompat && (
+                <button
+                  onClick={handleCancelUpload}
+                  className="text-[#8A8A8A] hover:text-[#111111] p-1 rounded-lg hover:bg-[#F7F7F7] transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+
+            {/* Modal Body (Scrollable) */}
+            <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+              {checkingCompat && (
+                <div className="py-16 text-center space-y-3 bg-[#F7F7F7] rounded-xl border border-border">
+                  <LoadingSpinner size="md" />
+                  <p className="text-xs font-semibold text-[#111111]">
+                    Analyzing CSV schema and resolving model feature mappings...
+                  </p>
+                  <p className="text-[11px] text-[#8A8A8A]">
+                    Evaluating headers against 30 canonical attributes & domain aliases
+                  </p>
+                </div>
+              )}
+
+              {compatError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-4 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2 font-bold">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span>Schema Compatibility Analysis Failed</span>
+                  </div>
+                  <p className="text-red-600">{compatError}</p>
+                </div>
+              )}
+
+              {compatReport && selectedFile && (
+                <div className="space-y-4">
+                  <CompatibilityReportCard
+                    report={compatReport}
+                    fileName={selectedFile.name}
+                    fileSize={selectedFile.size}
+                  />
+
+                  {/* Optional Custom Dataset Name Input */}
+                  {compatReport.status !== 'INCOMPATIBLE' && (
+                    <div className="bg-[#F7F7F7] border border-border rounded-xl p-4 space-y-2">
+                      <label className="block text-xs font-bold text-[#111111]">
+                        Custom Dataset Label (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={customName}
+                        onChange={(e) => setCustomName(e.target.value)}
+                        placeholder={`e.g. Q3 Engineering Workforce (${selectedFile.name})`}
+                        className="w-full text-xs px-3 py-2 bg-white border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-[#111111]"
+                      />
+                      <p className="text-[11px] text-[#8A8A8A]">
+                        A descriptive label makes it easy to switch between datasets in the topbar selector.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-border flex-shrink-0 flex-wrap">
+              <button
+                type="button"
+                onClick={handleCancelUpload}
+                disabled={checkingCompat}
+                className="btn-ghost text-xs py-2 px-4"
+              >
+                {compatReport?.status === 'INCOMPATIBLE' ? 'Close' : 'Cancel'}
+              </button>
+
+              <div className="flex items-center gap-2">
+                {compatReport && compatReport.status === 'FULLY_COMPATIBLE' && (
+                  <button
+                    type="button"
+                    onClick={handleConfirmUpload}
+                    className="btn-primary text-xs py-2 px-4 shadow-sm flex items-center gap-2"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Confirm & Upload Dataset</span>
+                  </button>
+                )}
+
+                {compatReport && compatReport.status === 'PARTIALLY_COMPATIBLE' && (
+                  <button
+                    type="button"
+                    onClick={handleConfirmUpload}
+                    className="btn-primary bg-amber-600 hover:bg-amber-700 text-white text-xs py-2 px-4 shadow-sm flex items-center gap-2"
+                  >
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Upload Anyway (Proceed with Imputation)</span>
+                  </button>
+                )}
+
+                {compatReport && compatReport.status === 'INCOMPATIBLE' && (
+                  <button
+                    type="button"
+                    disabled
+                    className="btn-primary bg-red-600 opacity-50 cursor-not-allowed text-xs py-2 px-4 shadow-sm"
+                  >
+                    Upload Blocked (Incompatible Schema)
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
