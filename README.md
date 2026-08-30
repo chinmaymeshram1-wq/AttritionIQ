@@ -346,8 +346,8 @@ cd AttritionIQ
    GEMINI_API_KEY="your-google-gemini-api-key"
    GEMINI_MODEL="gemini-1.5-flash"
    ALLOWED_ORIGINS="http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
-   TEST_USER_EMAIL="chinmay.test@example.com"
-   TEST_USER_PASSWORD="TestPassword123!"
+   TEST_USER_EMAIL="try123@example.com"
+   TEST_USER_PASSWORD="try@123"
    ```
 
 ---
@@ -391,8 +391,7 @@ FastAPI Application Startup
             ▼
 [Seed Data Verification] (seed_initial_data)
   - Ensures default organization exists ("Acme Corporation")
-  - Verifies/creates Primary Demo User (chinmay.test@example.com)
-  - Verifies/creates Secondary Demo User (try123@example.com)
+  - Verifies/creates Demo User (try123@example.com)
             │
             ▼
 [Startup Complete] Backend begins serving incoming API requests
@@ -513,17 +512,17 @@ Redirect to /dashboard
 
 ## 9. Demo Accounts
 
-The database seed module automatically provisions verified demo accounts on application startup for evaluation and testing:
+The database seed module automatically provisions a verified demo account on application startup for evaluation and testing:
 
 > **Important Note:** These credentials are for local development, academic review, and testing purposes only. Sensitive production secrets (JWT secret keys, database passwords, Gemini API keys) are not committed to source control and are loaded securely via `.env`.
 
-| Parameter | Primary Demo Account | Secondary Demo Account |
-|---|---|---|
-| **Email** | `chinmay.test@example.com` | `try123@example.com` |
-| **Password** | `TestPassword123!` | `try@123` |
-| **Full Name** | Chinmay Test | Demo User |
-| **Role** | Administrator | Standard Demo User |
-| **Default Organization** | Acme Corporation | Acme Corporation |
+| Parameter | Demo Account Credentials |
+|---|---|
+| **Email** | `try123@example.com` |
+| **Password** | `try@123` |
+| **Full Name** | Demo User |
+| **Role** | Standard Demo User |
+| **Default Organization** | Acme Corporation |
 
 ---
 
@@ -878,9 +877,9 @@ Live Demo URL:
 For reviewers, teachers, or evaluators exploring AttritionIQ for the first time:
 
 1. **Launch the Application:** Run `start_attritioniq.bat` or start the servers manually.
-2. **Log In:** Navigate to `http://localhost:3000/login` and enter the primary demo credentials:
-   - Email: `chinmay.test@example.com`
-   - Password: `TestPassword123!`
+2. **Log In:** Navigate to `http://localhost:3000/login` and enter the demo credentials:
+   - Email: `try123@example.com`
+   - Password: `try@123`
 3. **Explore the Dashboard:** Review the primary workforce KPI StatCards, risk distribution breakdown, and system component health checks.
 4. **Open Dataset Manager:** Navigate to **Dataset Manager** (`/datasets`).
 5. **Upload a Dataset:** Click **Upload Dataset** and select an HR CSV file (e.g., `backend/data/WA_Fn-UseC_-HR-Employee-Attrition.csv`).
